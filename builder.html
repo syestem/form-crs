@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Конструктор формы</title>
+  <link rel="stylesheet" href="style.css?v=20260327c" />
+</head>
+<body data-page="builder">
+  <div class="container builder-page-shell">
+    <div id="builderGate" class="builder-auth card">
+      <div class="confirm-kicker">Приватная админка</div>
+      <h1>Конструктор формы</h1>
+      <p class="field-hint">Введите код доступа. После входа можно менять структуру формы, условия показа, оформление и подписи.</p>
+      <div class="builder-auth-row">
+        <input id="builderPasscode" type="password" placeholder="Код доступа" />
+        <button id="unlockBuilderBtn" type="button">Войти</button>
+      </div>
+      <div id="builderAuthError" class="error-text hidden-text"></div>
+    </div>
+
+    <div id="builderWorkspace" class="hidden-text">
+      <div class="builder-app-brand">ЦРС</div>
+      <div class="builder-page-header">
+        <div>
+          <div class="confirm-kicker">Закрытая зона редактирования</div>
+          <h1>Конструктор формы</h1>
+          <p id="submitStatus" class="submit-status">Изменения схемы сохраняются локально и синхронизируются с Google Sheets.</p>
+        </div>
+        <div class="builder-page-links">
+          <button id="saveSchemaBtn" type="button" class="builder-primary-action">Сохранить</button>
+          <a class="builder-link" href="index.html">Открыть форму</a>
+          <button id="closeBuilderBtn" type="button" class="button-secondary builder-close-btn">Выйти</button>
+        </div>
+      </div>
+
+      <div class="builder-top-tabs">
+        <button type="button" class="builder-tab builder-tab-active" data-builder-tab="constructor">Конструктор</button>
+        <button type="button" class="builder-tab" data-builder-tab="theme">Тема</button>
+        <button type="button" class="builder-tab" data-builder-tab="settings">Настройки</button>
+        <button type="button" class="builder-tab" data-builder-tab="responses">Ответы</button>
+      </div>
+
+      <div id="builderActions" class="builder-actions card">
+        <button id="addTopFieldBtn" type="button">Добавить вопрос</button>
+        <button id="resetSchemaBtn" type="button" class="button-secondary">Вернуть исходную форму</button>
+        <button id="resetAllDataBtn" type="button" class="button-secondary">Полный сброс данных</button>
+      </div>
+
+      <div class="builder-layout">
+        <aside id="builderSidebar" class="builder-sidebar card">
+          <div class="builder-sidebar-head">
+            <div class="builder-sidebar-title">Содержание</div>
+            <button id="addFieldFromSidebarBtn" type="button" class="builder-sidebar-add">+</button>
+          </div>
+          <div id="builderOutline" class="builder-outline"></div>
+        </aside>
+        <div id="builderContent" class="builder-content"></div>
+      </div>
+    </div>
+
+    <div id="confirmModal" class="modal hidden">
+      <div class="modal-content confirm-modal-content">
+        <div class="confirm-kicker">Подтверждение</div>
+        <h3 id="confirmTitle">Вернуть исходную форму?</h3>
+        <p id="confirmText" class="field-hint">Это действие заменит текущую схему на исходную и синхронизирует её с Google Sheets.</p>
+        <div class="confirm-actions">
+          <button id="confirmCancelBtn" type="button" class="button-secondary">Отмена</button>
+          <button id="confirmSubmitBtn" type="button">Подтвердить</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="config.js?v=20260327c"></script>
+  <script src="api.js?v=20260327c"></script>
+  <script src="app.js?v=20260327c"></script>
+</body>
+</html>

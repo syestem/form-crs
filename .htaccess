@@ -1,0 +1,17 @@
+Options -Indexes
+
+<IfModule mod_rewrite.c>
+RewriteEngine On
+RewriteCond %{HTTP:Authorization} ^(.+)$
+RewriteRule ^ - [E=HTTP_AUTHORIZATION:%1]
+</IfModule>
+
+<FilesMatch "^\.">
+Order allow,deny
+Deny from all
+</FilesMatch>
+
+<FilesMatch "^(?:\.env|README\.md|api\.js\.map|server\.js|package\.json|package-lock\.json)$">
+  Order allow,deny
+  Deny from all
+</FilesMatch>

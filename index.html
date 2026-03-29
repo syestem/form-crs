@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Форма выбора</title>
+  <link rel="stylesheet" href="style.css?v=20260327h" />
+</head>
+<body data-page="form">
+  <div class="container">
+    <h1 id="pageTitle">Выберите удобный формат мероприятия</h1>
+
+    <section class="hero-ticket">
+      <div class="hero-ribbon hero-ribbon-top">Cottage event selection</div>
+      <div class="hero-ticket-grid">
+        <div class="hero-copy">
+          <div id="heroKicker" class="hero-kicker">Private estate edition</div>
+          <div id="heroHeadline" class="hero-headline">Выберите площадку, бар и программу так, будто уже продаете сам вечер.</div>
+          <div id="heroSubline" class="hero-subline">Форма собрана как афиша события: крупные ticket-style акценты, рваные неоновые плашки и понятный маршрут от площадки до afterparty.</div>
+        </div>
+        <div class="hero-meta">
+          <div id="heroBadge" class="hero-badge">Sale focus</div>
+          <div id="heroNote" class="hero-ticket-note">Лучше всего работает как презентация коттеджа, загородной площадки и полного сценария вечера.</div>
+        </div>
+      </div>
+      <div class="hero-ribbon hero-ribbon-bottom">tickets tickets tickets tickets</div>
+    </section>
+
+    <div id="profileCard" class="card">
+      <h3 id="userSectionTitle">1. Ваши данные</h3>
+      <p id="userSectionHint" class="field-hint">Оставьте имя и группу, чтобы мы сохранили ваш выбор.</p>
+      <div class="inputs-row">
+        <input id="name" placeholder="ФИО" />
+        <input id="group" placeholder="Группа" />
+      </div>
+      <div id="profileError" class="error-text hidden-text"></div>
+    </div>
+
+    <div class="stats-grid">
+      <div class="card stat-card">
+        <span id="participantsStatLabel" class="stat-label">Участников в группе</span>
+        <strong class="stat-value" id="participantsCount"></strong>
+      </div>
+      <div class="card stat-card">
+        <span id="responsesStatLabel" class="stat-label">Уже заполнили</span>
+        <strong class="stat-value" id="responsesCount">0</strong>
+      </div>
+    </div>
+
+    <div id="dynamic"></div>
+
+    <div class="result">
+      <div class="price-main">
+        <span id="perPerson">Билет: 0 ₽</span>
+      </div>
+      <p id="submitStatus" class="submit-status">После отправки выбор сохранится, и его можно будет изменить позже.</p>
+      <button id="detailsBtn" type="button">Общий чек / Итого</button>
+      <button id="saveBtn" type="button">Отправить выбор</button>
+    </div>
+
+    <button id="scrollTopBtn" type="button" class="scroll-top-btn hidden-text" aria-label="Наверх">↑</button>
+
+    <div id="detailsModal" class="modal hidden">
+      <div class="modal-content">
+        <h3>Общий чек</h3>
+        <div id="detailsContent"></div>
+        <button id="closeModal" type="button">Закрыть</button>
+      </div>
+    </div>
+
+    <div id="confirmModal" class="modal hidden">
+      <div class="modal-content confirm-modal-content">
+        <div class="confirm-kicker">Подтверждение</div>
+        <h3 id="confirmTitle">Отправить форму?</h3>
+        <p id="confirmText" class="field-hint">После отправки ответ сохранится, и вы сможете обновить его позже.</p>
+        <div class="confirm-actions">
+          <button id="confirmCancelBtn" type="button" class="button-secondary">Вернуться</button>
+          <button id="confirmSubmitBtn" type="button">Подтвердить</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="config.js?v=20260327h"></script>
+  <script src="api.js?v=20260327h"></script>
+  <script src="app.js?v=20260327h"></script>
+</body>
+</html>
