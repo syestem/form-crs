@@ -1,3 +1,35 @@
+function resolveApiBaseUrl() {
+  const runtimeConfig = window.FORM_RUNTIME_CONFIG || {};
+  const runtimeBaseUrl = typeof runtimeConfig.apiBaseUrl === "string" ? runtimeConfig.apiBaseUrl.trim() : "";
+  if (runtimeBaseUrl) {
+    return runtimeBaseUrl.replace(/\/$/, "");
+  }
+
+  try {
+    const storedBaseUrl = window.localStorage.getItem("event-form-api-base-url") || "";
+    if (storedBaseUrl.trim()) {
+      return storedBaseUrl.trim().replace(/\/$/, "");
+    }
+  } catch (error) {
+    void error;
+  }
+
+  const hostname = window.location.hostname || "";
+  if (
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "[::1]"
+  ) {
+    return "/api";
+  }
+
+  if (hostname.endsWith(".github.io")) {
+    return "";
+  }
+
+  return "/api";
+}
+
 const CONFIG = {
   participants: 80,
   storage: {
@@ -8,7 +40,7 @@ const CONFIG = {
     adminTokenKey: "event-form-admin-token-v1"
   },
   api: {
-    baseUrl: "/api"
+    baseUrl: resolveApiBaseUrl()
   },
   ui: {
     pageTitle: "Командообразование Спорт",
