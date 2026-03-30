@@ -1,1 +1,0 @@
-window.FORM_RUNTIME_CONFIG = window.FORM_RUNTIME_CONFIG || {};
