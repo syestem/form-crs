@@ -1,3 +1,3 @@
 window.FORM_RUNTIME_CONFIG = {
-  apiBaseUrl: "https://example.com/api"
+  apiBaseUrl: "http://shurateren.temp.swtest.ru/api"
 };
