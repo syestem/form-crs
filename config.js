@@ -15,11 +15,7 @@ function resolveApiBaseUrl() {
   }
 
   const hostname = window.location.hostname || "";
-  if (
-    hostname === "localhost" ||
-    hostname === "127.0.0.1" ||
-    hostname === "[::1]"
-  ) {
+  if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]") {
     return "/api";
   }
 
@@ -30,6 +26,29 @@ function resolveApiBaseUrl() {
   return "/api";
 }
 
+function readRuntimeValue(name) {
+  const runtimeConfig = window.FORM_RUNTIME_CONFIG || {};
+  const value = runtimeConfig[name];
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function resolveFormSlug() {
+  const urlSlug = (() => {
+    try {
+      const params = new URLSearchParams(window.location.search || "");
+      return (params.get("form") || "").trim();
+    } catch {
+      return "";
+    }
+  })();
+
+  if (urlSlug) {
+    return urlSlug;
+  }
+
+  return readRuntimeValue("formSlug");
+}
+
 const CONFIG = {
   participants: 80,
   storage: {
@@ -37,20 +56,32 @@ const CONFIG = {
     statsKey: "event-form-stats-v1",
     schemaKey: "event-form-schema-v1",
     uiConfigKey: "event-form-ui-config-v1",
-    adminTokenKey: "event-form-admin-token-v1"
+    adminTokenKey: "event-form-admin-token-v1",
+    authSessionKey: "event-form-auth-session-v1",
+    builderFormSlugKey: "event-form-builder-slug-v1"
   },
   api: {
     baseUrl: resolveApiBaseUrl()
   },
+  supabase: {
+    url: readRuntimeValue("supabaseUrl"),
+    anonKey: readRuntimeValue("supabaseAnonKey") || readRuntimeValue("supabasePublishableKey")
+  },
+  form: {
+    slug: resolveFormSlug()
+  },
+  builder: {
+    url: readRuntimeValue("builderUrl")
+  },
   ui: {
-    pageTitle: "Командообразование Спорт",
-    userSectionTitle: "Данные студента СГУПС:",
+    pageTitle: "Командообразование спорт",
+    userSectionTitle: "Данные студента СГУПС",
     userSectionHint: "Оставьте имя и группу, чтобы мы сохранили ваш выбор.",
     namePlaceholder: "ФИО",
     groupPlaceholder: "Группа",
     participantsStatLabel: "Участников в группе",
     responsesStatLabel: "Уже заполнили",
-    ticketLabel: "Билет",
+    ticketLabel: "Цена билета",
     detailsButtonLabel: "Общий чек / Итого",
     saveButtonLabel: "Отправить выбор",
     resubmitButtonLabel: "Обновить мой выбор",
@@ -62,9 +93,8 @@ const CONFIG = {
     buttonSecondaryBg: "#e5e7eb",
     buttonSecondaryText: "#1f2937",
     builderTitle: "Конструктор формы",
-    builderHint: "Здесь вы можете отдельно настроить верх формы, пользовательские поля, счётчики и сами вопросы."
+    builderHint: "Здесь вы можете менять структуру формы, пользовательские поля, оформление и блок вопросов."
   },
-
   fields: [
     {
       id: "location",

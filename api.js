@@ -1,4 +1,4 @@
-function requestJson(config, path, options = {}) {
+﻿function requestJson(config, path, options = {}) {
   const baseUrl = (config.api.baseUrl || "/api").replace(/\/$/, "");
   const url = `${baseUrl}${path}`;
   const headers = {
@@ -19,13 +19,60 @@ function requestJson(config, path, options = {}) {
   });
 }
 
+function getFormSlug(config) {
+  const slug = config?.form?.slug;
+  return typeof slug === "string" ? slug.trim() : "";
+}
+
 window.FormApi = {
+  async listForms(config, adminToken) {
+    return requestJson(config, "/admin/forms", {
+      headers: {
+        Authorization: `Bearer ${adminToken}`
+      }
+    });
+  },
+
+  async createForm(config, payload, adminToken) {
+    return requestJson(config, "/admin/forms", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${adminToken}`
+      },
+      body: payload
+    });
+  },
+
+  async updateForm(config, formId, payload, adminToken) {
+    return requestJson(config, `/admin/forms/${encodeURIComponent(formId)}`, {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${adminToken}`
+      },
+      body: payload
+    });
+  },
+
+  async deleteForm(config, formId, adminToken) {
+    return requestJson(config, `/admin/forms/${encodeURIComponent(formId)}`, {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${adminToken}`
+      }
+    });
+  },
+
   async fetchStats(config) {
+    const slug = getFormSlug(config);
+    if (slug) {
+      return requestJson(config, `/public/forms/${encodeURIComponent(slug)}/stats`);
+    }
     return requestJson(config, "/stats");
   },
 
   async submit(config, payload) {
-    const result = await requestJson(config, "/submissions/upsert", {
+    const slug = getFormSlug(config);
+    const result = await requestJson(config, slug ? `/public/forms/${encodeURIComponent(slug)}/submissions` : "/submissions/upsert", {
       method: "POST",
       body: payload
     });
@@ -37,6 +84,19 @@ window.FormApi = {
   },
 
   async fetchSchema(config) {
+    const slug = getFormSlug(config);
+    if (slug) {
+      const result = await requestJson(config, `/public/forms/${encodeURIComponent(slug)}`);
+      return result.form
+        ? {
+            ok: true,
+            title: result.form.title || "",
+            slug: result.form.slug || slug,
+            schema: result.form.schema || [],
+            uiConfig: result.form.uiConfig || {}
+          }
+        : result;
+    }
     return requestJson(config, "/schema");
   },
 
@@ -47,13 +107,14 @@ window.FormApi = {
     });
   },
 
-  async saveSchema(config, schema, uiConfig, adminToken) {
-    const result = await requestJson(config, "/schema", {
-      method: "POST",
+  async saveSchema(config, schema, uiConfig, adminToken, formMeta = null) {
+    const slug = getFormSlug(config);
+    const result = await requestJson(config, slug ? `/admin/forms/by-slug/${encodeURIComponent(slug)}` : "/schema", {
+      method: slug ? "PATCH" : "POST",
       headers: {
         Authorization: `Bearer ${adminToken}`
       },
-      body: { schema, uiConfig }
+      body: slug ? { schema, uiConfig, ...(formMeta || {}) } : { schema, uiConfig }
     });
 
     return {
@@ -63,7 +124,59 @@ window.FormApi = {
   },
 
   async fetchResponses(config, adminToken) {
-    return requestJson(config, "/responses", {
+    const slug = getFormSlug(config);
+    return requestJson(config, slug ? `/admin/forms/by-slug/${encodeURIComponent(slug)}/responses` : "/responses", {
+      headers: {
+        Authorization: `Bearer ${adminToken}`
+      }
+    });
+  },
+
+  async deleteResponse(config, submissionKey, adminToken) {
+    const slug = getFormSlug(config);
+    return requestJson(config, slug ? `/admin/forms/by-slug/${encodeURIComponent(slug)}/submissions/${encodeURIComponent(submissionKey)}` : `/responses/${encodeURIComponent(submissionKey)}`, {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${adminToken}`
+      }
+    });
+  },
+
+  async listMembers(config, adminToken) {
+    const slug = getFormSlug(config);
+    return requestJson(config, `/admin/forms/by-slug/${encodeURIComponent(slug)}/members`, {
+      headers: {
+        Authorization: `Bearer ${adminToken}`
+      }
+    });
+  },
+
+  async addMember(config, payload, adminToken) {
+    const slug = getFormSlug(config);
+    return requestJson(config, `/admin/forms/by-slug/${encodeURIComponent(slug)}/members`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${adminToken}`
+      },
+      body: payload
+    });
+  },
+
+  async updateMember(config, userId, payload, adminToken) {
+    const slug = getFormSlug(config);
+    return requestJson(config, `/admin/forms/by-slug/${encodeURIComponent(slug)}/members/${encodeURIComponent(userId)}`, {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${adminToken}`
+      },
+      body: payload
+    });
+  },
+
+  async removeMember(config, userId, adminToken) {
+    const slug = getFormSlug(config);
+    return requestJson(config, `/admin/forms/by-slug/${encodeURIComponent(slug)}/members/${encodeURIComponent(userId)}`, {
+      method: "DELETE",
       headers: {
         Authorization: `Bearer ${adminToken}`
       }
@@ -71,11 +184,13 @@ window.FormApi = {
   },
 
   async resetAllData(config, adminToken) {
-    const result = await requestJson(config, "/admin/reset-all-data", {
+    const slug = getFormSlug(config);
+    const result = await requestJson(config, slug ? `/admin/forms/by-slug/${encodeURIComponent(slug)}/reset-submissions` : "/admin/reset-all-data", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${adminToken}`
-      }
+      },
+      body: {}
     });
 
     return {

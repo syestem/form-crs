@@ -29,6 +29,13 @@
 
 Создайте функцию `form-api` из файла [supabase/functions/form-api/index.ts](/S:/develop/form/supabase/functions/form-api/index.ts)
 
+Важно:
+
+- для этой функции нужно отключить платформенную проверку JWT
+- конфиг уже подготовлен в [supabase/config.toml](/S:/develop/form/supabase/config.toml)
+
+Если деплой идет через CLI, используйте этот конфиг или флаг `--no-verify-jwt`.
+
 ## 3. Secrets в Supabase
 
 Добавьте secrets:
@@ -57,3 +64,32 @@ npm start
 ```
 
 Это поднимет Node-версию backend для тестов на `localhost`.
+
+## 6. Если `health` отвечает `401 Missing authorization header`
+
+Это значит, что у функции включена проверка JWT на уровне Supabase Edge Gateway.
+
+Нужно задеплоить `form-api` с отключенной проверкой JWT:
+
+```bash
+supabase functions deploy form-api --no-verify-jwt
+```
+
+или использовать [supabase/config.toml](/S:/develop/form/supabase/config.toml), где уже задано:
+
+```toml
+[functions.form-api]
+verify_jwt = false
+```
+
+После этого URL
+
+```text
+https://YOUR_PROJECT_REF.supabase.co/functions/v1/form-api/health
+```
+
+должен возвращать:
+
+```json
+{"ok":true}
+```

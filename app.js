@@ -11,11 +11,16 @@
     hasSubmitted: false,
     lastSubmittedAt: ""
   },
+  formMeta: {
+    title: "",
+    slug: ""
+  },
   stats: {
     responsesCount: 0,
     optionCounts: {}
   },
   optionDetailsOpen: {},
+  dateCalendarMonths: {},
   schemaSync: {
     timerId: 0,
     isSaving: false
@@ -28,12 +33,38 @@
     drag: null,
     dragArmed: null,
     activeTab: "constructor",
+    selectedFormSlug: "",
+    selectedFormTitle: "",
     collapsedDependencies: {},
+    forms: {
+      loading: false,
+      error: "",
+      items: [],
+      showCreatePanel: false,
+      editingSlugFormId: "",
+      editingSlugValue: "",
+      draft: {
+        title: "",
+        slug: ""
+      }
+    },
     responses: {
       loading: false,
       rows: [],
-      headers: []
-    }
+      headers: [],
+      records: [],
+      selectedKeys: []
+    },
+    members: {
+      loading: false,
+      error: "",
+      items: [],
+      draftEmail: "",
+      draftRole: "editor"
+    },
+    themeMode: "basic",
+    saveIndicatorTone: "idle",
+    saveIndicatorText: "\u0412\u0441\u0435 \u0438\u0437\u043c\u0435\u043d\u0435\u043d\u0438\u044f \u0441\u043e\u0445\u0440\u0430\u043d\u0435\u043d\u044b"
   }
 };
 
@@ -59,6 +90,8 @@ const ui = {
   builderSidebar: null,
   builderLayout: null,
   closeBuilderBtn: null,
+  builderFormsBtn: null,
+  builderOpenFormBtn: null,
   saveSchemaBtn: null,
   addFieldFromSidebarBtn: null,
   addTopFieldBtn: null,
@@ -66,9 +99,13 @@ const ui = {
   resetAllDataBtn: null,
   builderGate: null,
   builderWorkspace: null,
+  builderEmail: null,
   builderPasscode: null,
   unlockBuilderBtn: null,
+  builderForgotPasswordBtn: null,
+  builderAuthModeLabel: null,
   builderAuthError: null,
+  builderWorkspaceTitle: null,
   builderTabs: [],
   builderOutline: null,
   pageTitle: null,
@@ -77,6 +114,7 @@ const ui = {
   heroSubline: null,
   heroBadge: null,
   heroNote: null,
+  adminEntryLink: null,
   userSectionTitle: null,
   userSectionHint: null,
   participantsStatLabel: null,
@@ -85,7 +123,14 @@ const ui = {
   group: null,
   profileError: null,
   profileCard: null,
-  scrollTopBtn: null
+  scrollTopBtn: null,
+  loadingOverlay: null,
+  loadingLabel: null,
+  builderSaveIndicator: null
+};
+
+const loadingState = {
+  count: 0
 };
 
 function deepClone(value) {
@@ -106,6 +151,286 @@ function text(value) {
 
 function cleanString(value) {
   return typeof value === "string" ? text(value) : value;
+}
+
+function ensureLoadingOverlay() {
+  if (ui.loadingOverlay || typeof document === "undefined" || !document.body) {
+    return;
+  }
+
+  const overlay = document.createElement("div");
+  overlay.className = "app-loading-overlay hidden-text";
+
+  const card = document.createElement("div");
+  card.className = "app-loading-card";
+
+  const spinner = document.createElement("div");
+  spinner.className = "app-loading-spinner";
+  spinner.setAttribute("aria-hidden", "true");
+
+  const label = document.createElement("div");
+  label.className = "app-loading-label";
+  label.textContent = "\u0417\u0430\u0433\u0440\u0443\u0437\u043a\u0430...";
+
+  card.append(spinner, label);
+  overlay.appendChild(card);
+  document.body.appendChild(overlay);
+
+  ui.loadingOverlay = overlay;
+  ui.loadingLabel = label;
+}
+
+function showLoadingOverlay(message = "\u0417\u0430\u0433\u0440\u0443\u0437\u043a\u0430...") {
+  ensureLoadingOverlay();
+  if (!ui.loadingOverlay) {
+    return;
+  }
+
+  loadingState.count += 1;
+  ui.loadingLabel.textContent = cleanString(message);
+  ui.loadingOverlay.classList.remove("hidden-text");
+}
+
+function hideLoadingOverlay() {
+  if (!ui.loadingOverlay) {
+    return;
+  }
+
+  loadingState.count = Math.max(0, loadingState.count - 1);
+  if (loadingState.count === 0) {
+    ui.loadingOverlay.classList.add("hidden-text");
+  }
+}
+
+function resetLoadingOverlay() {
+  loadingState.count = 0;
+  if (ui.loadingOverlay) {
+    ui.loadingOverlay.classList.add("hidden-text");
+  }
+}
+
+async function runWithLoading(message, callback) {
+  showLoadingOverlay(message);
+  try {
+    return await callback();
+  } finally {
+    hideLoadingOverlay();
+  }
+}
+
+function ensureBuilderSaveIndicator() {
+  if (!isBuilderPage() || ui.builderSaveIndicator || typeof document === "undefined" || !document.body) {
+    return;
+  }
+
+  const indicator = document.createElement("div");
+  indicator.className = "builder-save-indicator";
+  document.body.appendChild(indicator);
+  ui.builderSaveIndicator = indicator;
+}
+
+function updateBuilderSaveIndicator() {
+  if (!isBuilderPage()) {
+    return;
+  }
+
+  ensureBuilderSaveIndicator();
+  if (!ui.builderSaveIndicator) {
+    return;
+  }
+
+  ui.builderSaveIndicator.textContent = state.builder.saveIndicatorText;
+  ui.builderSaveIndicator.dataset.tone = state.builder.saveIndicatorTone;
+}
+
+function setBuilderSaveIndicator(textValue, tone = "idle") {
+  state.builder.saveIndicatorText = cleanString(textValue || "");
+  state.builder.saveIndicatorTone = tone;
+  updateBuilderSaveIndicator();
+}
+
+function hasSupabaseAuthConfig() {
+  return Boolean(CONFIG.supabase?.url && CONFIG.supabase?.anonKey && window.supabase?.createClient);
+}
+
+function getSupabaseSession() {
+  try {
+    return JSON.parse(localStorage.getItem(CONFIG.storage.authSessionKey) || "null");
+  } catch {
+    return null;
+  }
+}
+
+function setSupabaseSession(session) {
+  if (session) {
+    localStorage.setItem(CONFIG.storage.authSessionKey, JSON.stringify(session));
+    return;
+  }
+
+  localStorage.removeItem(CONFIG.storage.authSessionKey);
+}
+
+function getSupabaseAccessToken() {
+  return cleanString(getSupabaseSession()?.access_token || "");
+}
+
+function getBuilderBearerToken() {
+  if (hasSupabaseAuthConfig()) {
+    return getSupabaseAccessToken();
+  }
+  return getAdminToken();
+}
+
+function hasBuilderAuthorization() {
+  return Boolean(getBuilderBearerToken());
+}
+
+function getStoredBuilderFormSlug() {
+  try {
+    return localStorage.getItem(CONFIG.storage.builderFormSlugKey) || "";
+  } catch {
+    return "";
+  }
+}
+
+function setSelectedBuilderFormSlug(slug, persist = true) {
+  const normalized = cleanString(slug || "");
+  state.builder.selectedFormSlug = normalized;
+  CONFIG.form.slug = normalized;
+
+  if (!persist) {
+    return;
+  }
+
+  try {
+    if (normalized) {
+      localStorage.setItem(CONFIG.storage.builderFormSlugKey, normalized);
+    } else {
+      localStorage.removeItem(CONFIG.storage.builderFormSlugKey);
+    }
+  } catch {
+    void 0;
+  }
+}
+
+function setSelectedBuilderFormMeta(form) {
+  state.builder.selectedFormTitle = cleanString(form?.title || "");
+  setSelectedBuilderFormSlug(cleanString(form?.slug || ""));
+}
+
+function hasSelectedBuilderForm() {
+  return Boolean(state.builder.selectedFormSlug);
+}
+
+function getSelectedBuilderFormRecord() {
+  return state.builder.forms.items.find(item => cleanString(item.slug) === cleanString(state.builder.selectedFormSlug)) || null;
+}
+
+function getBuilderFormMetaPayload() {
+  if (!hasSelectedBuilderForm()) {
+    return null;
+  }
+
+  return {
+    slug: state.builder.selectedFormSlug,
+    title: state.builder.selectedFormTitle || undefined
+  };
+}
+
+function getBuilderEntryHref() {
+  if (CONFIG.builder?.url) {
+    return CONFIG.builder.url;
+  }
+
+  try {
+    return new URL("builder.html", window.location.href).toString();
+  } catch {
+    return "builder.html";
+  }
+}
+
+function slugifyFormValue(value) {
+  return cleanString(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\u0430-\u044f\u0451]+/gi, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function getPublicFormHref(slug) {
+  const normalized = cleanString(slug || "");
+  try {
+    const url = new URL("index.html", window.location.href);
+    if (normalized) {
+      url.searchParams.set("form", normalized);
+    }
+    return url.toString();
+  } catch {
+    return normalized ? `index.html?form=${encodeURIComponent(normalized)}` : "index.html";
+  }
+}
+
+function formatBuilderDate(value) {
+  const source = cleanString(value || "");
+  if (!source) {
+    return "\u2014";
+  }
+
+  const date = new Date(source);
+  if (Number.isNaN(date.getTime())) {
+    return source;
+  }
+
+  return new Intl.DateTimeFormat("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(date);
+}
+
+function getRoleLabel(role) {
+  const normalized = cleanString(role || "").toLowerCase();
+  if (normalized === "owner") {
+    return "\u0412\u043b\u0430\u0434\u0435\u043b\u0435\u0446";
+  }
+  if (normalized === "admin") {
+    return "\u0410\u0434\u043c\u0438\u043d";
+  }
+  if (normalized === "editor") {
+    return "\u0420\u0435\u0434\u0430\u043a\u0442\u043e\u0440";
+  }
+  return "\u041d\u0430\u0431\u043b\u044e\u0434\u0430\u0442\u0435\u043b\u044c";
+}
+
+function getAssignableRoleChoices() {
+  return [
+    { value: "owner", label: "\u0412\u043b\u0430\u0434\u0435\u043b\u0435\u0446" },
+    { value: "admin", label: "\u0410\u0434\u043c\u0438\u043d" },
+    { value: "editor", label: "\u0420\u0435\u0434\u0430\u043a\u0442\u043e\u0440" },
+    { value: "viewer", label: "\u041d\u0430\u0431\u043b\u044e\u0434\u0430\u0442\u0435\u043b\u044c" }
+  ];
+}
+
+let supabaseBrowserClient = null;
+
+function getSupabaseBrowserClient() {
+  if (!hasSupabaseAuthConfig()) {
+    return null;
+  }
+
+  if (supabaseBrowserClient) {
+    return supabaseBrowserClient;
+  }
+
+  supabaseBrowserClient = window.supabase.createClient(CONFIG.supabase.url, CONFIG.supabase.anonKey, {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true
+    }
+  });
+
+  return supabaseBrowserClient;
 }
 
 function isMobileDevice() {
@@ -297,26 +622,26 @@ function isEmptyValue(value) {
 
 function getProfileError() {
   if (isEmptyValue(state.profile.name) && isEmptyValue(state.profile.group)) {
-    return "Заполните ФИО и учебную группу";
+    return "\u0417\u0430\u043f\u043e\u043b\u043d\u0438\u0442\u0435 \u0438\u043c\u044f \u0438 \u0433\u0440\u0443\u043f\u043f\u0443";
   }
 
   if (isEmptyValue(state.profile.name)) {
-    return "Поле ФИО обязательно";
+    return "\u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u0438\u043c\u044f";
   }
 
   if (isEmptyValue(state.profile.group)) {
-    return "Поле Учебная группа обязательно";
+    return "\u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u0433\u0440\u0443\u043f\u043f\u0443";
   }
 
   return "";
 }
 
 function formatPerPerson(amount, people) {
-  return `${Math.round(amount / people)} ₽/чел`;
+  return `${Math.round(amount / people)} \u20bd/\u0447\u0435\u043b`;
 }
 
 function formatTotal(amount) {
-  return `${amount} ₽`;
+  return `${amount} в‚Ѕ`;
 }
 
 function generateSubmissionId() {
@@ -340,13 +665,26 @@ function getDefaultValue(field) {
     return "";
   }
 
+  if (field.type === "date") {
+    return "";
+  }
+
   return null;
 }
 
-function getParticipantCount() {
-  const rawValue = state.uiConfig?.participantsCount ?? CONFIG.participants;
-  const parsed = Number(rawValue);
-  return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : CONFIG.participants;
+function parsePositiveCount(value, fallback) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : fallback;
+}
+
+function getDisplayParticipantCount() {
+  const rawValue = state.uiConfig?.displayParticipantsCount ?? state.uiConfig?.participantsCount ?? CONFIG.participants;
+  return parsePositiveCount(rawValue, CONFIG.participants);
+}
+
+function getPricingParticipantCount() {
+  const rawValue = state.uiConfig?.pricingParticipantsCount ?? state.uiConfig?.participantsCount ?? CONFIG.participants;
+  return parsePositiveCount(rawValue, CONFIG.participants);
 }
 
 function normalizeUiConfig(config) {
@@ -355,10 +693,10 @@ function normalizeUiConfig(config) {
     ...source,
     pageTitle: cleanString(source.pageTitle || ""),
     heroKicker: cleanString(source.heroKicker || "Private estate edition"),
-    heroHeadline: cleanString(source.heroHeadline || "Выберите площадку, бар и программу так, будто уже продаете сам вечер."),
-    heroSubline: cleanString(source.heroSubline || "Форма собрана как афиша события: крупные ticket-style акценты, рваные неоновые плашки и понятный маршрут от площадки до afterparty."),
+    heroHeadline: cleanString(source.heroHeadline || "\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u043f\u043b\u043e\u0449\u0430\u0434\u043a\u0443, \u0431\u0430\u0440 \u0438 \u043f\u0440\u043e\u0433\u0440\u0430\u043c\u043c\u0443 \u0442\u0430\u043a, \u0431\u0443\u0434\u0442\u043e \u0443\u0436\u0435 \u043f\u0440\u043e\u0434\u0430\u0435\u0442\u0435 \u0441\u0430\u043c \u0432\u0435\u0447\u0435\u0440."),
+    heroSubline: cleanString(source.heroSubline || "\u0424\u043e\u0440\u043c\u0430 \u0441\u043e\u0431\u0440\u0430\u043d\u0430 \u043a\u0430\u043a \u0430\u0444\u0438\u0448\u0430 \u0441\u043e\u0431\u044b\u0442\u0438\u044f: \u043a\u0440\u0443\u043f\u043d\u044b\u0435 ticket-style \u0430\u043a\u0446\u0435\u043d\u0442\u044b, \u0440\u0432\u0430\u043d\u044b\u0435 \u043d\u0435\u043e\u043d\u043e\u0432\u044b\u0435 \u043f\u043b\u0430\u0448\u043a\u0438 \u0438 \u043f\u043e\u043d\u044f\u0442\u043d\u044b\u0439 \u043c\u0430\u0440\u0448\u0440\u0443\u0442 \u043e\u0442 \u043f\u043b\u043e\u0449\u0430\u0434\u043a\u0438 \u0434\u043e afterparty."),
     heroBadge: cleanString(source.heroBadge || "Sale focus"),
-    heroNote: cleanString(source.heroNote || "Лучше всего работает как презентация коттеджа, загородной площадки и полного сценария вечера."),
+    heroNote: cleanString(source.heroNote || "\u041b\u0443\u0447\u0448\u0435 \u0432\u0441\u0435\u0433\u043e \u0440\u0430\u0431\u043e\u0442\u0430\u0435\u0442 \u043a\u0430\u043a \u043f\u0440\u0435\u0437\u0435\u043d\u0442\u0430\u0446\u0438\u044f \u043a\u043e\u0442\u0442\u0435\u0434\u0436\u0430, \u0437\u0430\u0433\u043e\u0440\u043e\u0434\u043d\u043e\u0439 \u043f\u043b\u043e\u0449\u0430\u0434\u043a\u0438 \u0438 \u043f\u043e\u043b\u043d\u043e\u0433\u043e \u0441\u0446\u0435\u043d\u0430\u0440\u0438\u044f \u0432\u0435\u0447\u0435\u0440\u0430."),
     userSectionTitle: cleanString(source.userSectionTitle || ""),
     userSectionHint: cleanString(source.userSectionHint || ""),
     namePlaceholder: cleanString(source.namePlaceholder || ""),
@@ -390,7 +728,9 @@ function normalizeUiConfig(config) {
     surfaceBorder: source.surfaceBorder || "",
     checkTableStart: source.checkTableStart || "",
     checkTableEnd: source.checkTableEnd || "",
-    participantsCount: Number(source.participantsCount) || CONFIG.participants
+    participantsCount: Number(source.participantsCount) || CONFIG.participants,
+    displayParticipantsCount: parsePositiveCount(source.displayParticipantsCount ?? source.participantsCount, CONFIG.participants),
+    pricingParticipantsCount: parsePositiveCount(source.pricingParticipantsCount ?? source.participantsCount, CONFIG.participants)
   };
 }
 
@@ -444,7 +784,7 @@ function appendDependencyRule(dependsOn, rule) {
 function normalizeOption(option) {
   return {
     value: cleanString(option?.value) || generateId("option"),
-    label: cleanString(option?.label) || "Новый вариант",
+    label: cleanString(option?.label) || "\u041d\u043e\u0432\u044b\u0439 \u0432\u0430\u0440\u0438\u0430\u043d\u0442",
     description: cleanString(option?.description) || "",
     details: cleanString(option?.details) || "",
     mapUrl: cleanString(option?.mapUrl) || "",
@@ -460,7 +800,7 @@ function normalizeOption(option) {
 function normalizeField(field) {
   const normalized = {
     id: cleanString(field?.id) || generateId("field"),
-    label: cleanString(field?.label) || "Новое поле",
+    label: cleanString(field?.label) || "\u041d\u043e\u0432\u044b\u0439 \u0432\u043e\u043f\u0440\u043e\u0441",
     hint: cleanString(field?.hint) || "",
     promoTag: cleanString(field?.promoTag) || "",
     promoTitle: cleanString(field?.promoTitle) || "",
@@ -471,7 +811,7 @@ function normalizeField(field) {
     dependsOn: normalizeDependencies(field?.dependsOn)
   };
 
-  if (normalized.type !== "text") {
+  if (normalized.type !== "text" && normalized.type !== "date") {
     normalized.options = Array.isArray(field?.options) && field.options.length
       ? field.options.map(normalizeOption)
       : [createOptionTemplate()];
@@ -540,14 +880,184 @@ function getOptionPriceLabel(option, people) {
   }
 
   if (!option.price) {
-    return "Бесплатно";
+    return "\u0411\u0435\u0441\u043f\u043b\u0430\u0442\u043d\u043e";
   }
 
   if (option.priceType === "fixed") {
-    return `${Math.round(option.price / people)} ₽/чел`;
+    return `${Math.round(option.price / people)} \u20bd/\u0447\u0435\u043b`;
   }
 
-  return `${option.price} ₽/чел`;
+  return `${option.price} \u20bd/\u0447\u0435\u043b`;
+}
+
+function getFieldPopularityMeta(field, value) {
+  const normalizedValue = cleanString(value || "");
+  if (!normalizedValue) {
+    return { count: 0, percent: 0 };
+  }
+
+  const count = Number(state.stats.optionCounts?.[field.id]?.[normalizedValue] || 0);
+  const total = Number(state.stats.responsesCount || 0);
+  return {
+    count,
+    percent: count && total ? Math.round((count / total) * 100) : 0
+  };
+}
+
+function getDatePopularityTone(percent) {
+  if (percent >= 60) {
+    return "high";
+  }
+  if (percent >= 30) {
+    return "mid";
+  }
+  if (percent > 0) {
+    return "low";
+  }
+  return "";
+}
+
+function parseIsoDateParts(value) {
+  const source = cleanString(value || "");
+  const match = source.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) {
+    return null;
+  }
+  return {
+    year: Number(match[1]),
+    month: Number(match[2]) - 1,
+    day: Number(match[3])
+  };
+}
+
+function formatIsoDate(year, monthIndex, day) {
+  return `${year}-${String(monthIndex + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function getCalendarMonthState(fieldId, currentValue) {
+  const stored = state.dateCalendarMonths[fieldId];
+  if (stored && Number.isFinite(stored.year) && Number.isFinite(stored.month)) {
+    return stored;
+  }
+
+  const parsed = parseIsoDateParts(currentValue);
+  if (parsed) {
+    const value = { year: parsed.year, month: parsed.month };
+    state.dateCalendarMonths[fieldId] = value;
+    return value;
+  }
+
+  const now = new Date();
+  const value = { year: now.getFullYear(), month: now.getMonth() };
+  state.dateCalendarMonths[fieldId] = value;
+  return value;
+}
+
+function shiftCalendarMonth(fieldId, offset, currentValue) {
+  const current = getCalendarMonthState(fieldId, currentValue);
+  const nextDate = new Date(current.year, current.month + offset, 1);
+  state.dateCalendarMonths[fieldId] = {
+    year: nextDate.getFullYear(),
+    month: nextDate.getMonth()
+  };
+}
+
+function getDatePopularityStats(field, isoDate) {
+  const meta = getFieldPopularityMeta(field, isoDate);
+  return {
+    count: meta.count,
+    percent: meta.percent,
+    tone: getDatePopularityTone(meta.percent)
+  };
+}
+
+function createDateCalendar(field, currentValue) {
+  const calendar = document.createElement("div");
+  calendar.className = "date-calendar";
+
+  const monthState = getCalendarMonthState(field.id, currentValue);
+  const firstDay = new Date(monthState.year, monthState.month, 1);
+  const daysInMonth = new Date(monthState.year, monthState.month + 1, 0).getDate();
+  const startOffset = (firstDay.getDay() + 6) % 7;
+
+  const header = document.createElement("div");
+  header.className = "date-calendar-head";
+
+  const prevBtn = document.createElement("button");
+  prevBtn.type = "button";
+  prevBtn.className = "date-calendar-nav";
+  prevBtn.textContent = "\u2039";
+  prevBtn.addEventListener("click", () => {
+    shiftCalendarMonth(field.id, -1, currentValue);
+    refreshUI(true);
+  });
+
+  const title = document.createElement("div");
+  title.className = "date-calendar-title";
+  title.textContent = new Intl.DateTimeFormat("ru-RU", {
+    month: "long",
+    year: "numeric"
+  }).format(new Date(monthState.year, monthState.month, 1));
+
+  const nextBtn = document.createElement("button");
+  nextBtn.type = "button";
+  nextBtn.className = "date-calendar-nav";
+  nextBtn.textContent = "\u203a";
+  nextBtn.addEventListener("click", () => {
+    shiftCalendarMonth(field.id, 1, currentValue);
+    refreshUI(true);
+  });
+
+  header.append(prevBtn, title, nextBtn);
+  calendar.appendChild(header);
+
+  const weekdays = document.createElement("div");
+  weekdays.className = "date-calendar-weekdays";
+  ["\u041f\u043d", "\u0412\u0442", "\u0421\u0440", "\u0427\u0442", "\u041f\u0442", "\u0421\u0431", "\u0412\u0441"].forEach(label => {
+    const cell = document.createElement("div");
+    cell.className = "date-calendar-weekday";
+    cell.textContent = label;
+    weekdays.appendChild(cell);
+  });
+  calendar.appendChild(weekdays);
+
+  const grid = document.createElement("div");
+  grid.className = "date-calendar-grid";
+
+  for (let i = 0; i < startOffset; i += 1) {
+    const empty = document.createElement("div");
+    empty.className = "date-calendar-day date-calendar-day-empty";
+    grid.appendChild(empty);
+  }
+
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    const isoDate = formatIsoDate(monthState.year, monthState.month, day);
+    const dayBtn = document.createElement("button");
+    dayBtn.type = "button";
+    dayBtn.className = "date-calendar-day";
+    dayBtn.textContent = String(day);
+    if (currentValue === isoDate) {
+      dayBtn.classList.add("date-calendar-day-selected");
+    }
+
+    const popularity = getDatePopularityStats(field, isoDate);
+    if (popularity.tone) {
+      dayBtn.dataset.popularity = popularity.tone;
+      dayBtn.title = `${popularity.percent}% \u0433\u0440\u0443\u043f\u043f\u044b \u0432\u044b\u0431\u0440\u0430\u043b\u0438 \u044d\u0442\u0443 \u0434\u0430\u0442\u0443`;
+    }
+
+    dayBtn.addEventListener("click", () => {
+      state.values[field.id] = isoDate;
+      state.dateCalendarMonths[field.id] = { year: monthState.year, month: monthState.month };
+      saveDraft();
+      refreshUI(true);
+    });
+
+    grid.appendChild(dayBtn);
+  }
+
+  calendar.appendChild(grid);
+  return calendar;
 }
 
 function isOptionSelected(field, option) {
@@ -697,8 +1207,10 @@ function validateField(field) {
   const value = state.values[field.id];
   if (isEmptyValue(value)) {
     return Array.isArray(value)
-      ? "Выберите хотя бы один вариант"
-      : "Обязательное поле";
+      ? "\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0445\u043e\u0442\u044f \u0431\u044b \u043e\u0434\u0438\u043d \u043e\u0431\u044f\u0437\u0430\u0442\u0435\u043b\u044c\u043d\u044b\u0439 \u0432\u0430\u0440\u0438\u0430\u043d\u0442"
+      : field.type === "date"
+        ? "\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0434\u0430\u0442\u0443"
+        : "\u0417\u0430\u043f\u043e\u043b\u043d\u0438\u0442\u0435 \u043f\u043e\u043b\u0435";
   }
 
   return "";
@@ -740,7 +1252,7 @@ function findFirstInvalidField() {
 function scrollToFirstInvalidArea() {
   const profileError = getProfileError();
   if (profileError) {
-    ui.submitStatus.textContent = "Сначала заполните блок с именем и группой.";
+    ui.submitStatus.textContent = "\u0421\u043d\u0430\u0447\u0430\u043b\u0430 \u0437\u0430\u043f\u043e\u043b\u043d\u0438\u0442\u0435 \u0431\u043b\u043e\u043a \u0441 \u0438\u043c\u0435\u043d\u0435\u043c \u0438 \u0433\u0440\u0443\u043f\u043f\u043e\u0439.";
     focusProfileError();
     return true;
   }
@@ -750,7 +1262,7 @@ function scrollToFirstInvalidArea() {
     return false;
   }
 
-  ui.submitStatus.textContent = `Заполните обязательный пункт: ${text(invalidField.label || "без названия")}.`;
+  ui.submitStatus.textContent = `\u0417\u0430\u043f\u043e\u043b\u043d\u0438\u0442\u0435 \u043e\u0431\u044f\u0437\u0430\u0442\u0435\u043b\u044c\u043d\u044b\u0439 \u043f\u0443\u043d\u043a\u0442: ${text(invalidField.label || "\u0431\u0435\u0437 \u043d\u0430\u0437\u0432\u0430\u043d\u0438\u044f")}.`;
 
   const wrapper = document.getElementById(`form-field-${invalidField.id}`);
   wrapper?.classList.add("form-section-highlight");
@@ -774,7 +1286,7 @@ function getPopularityText(field, option) {
   }
 
   const percent = Math.round((count / total) * 100);
-  return `Этот вариант выбрали ${percent}% группы`;
+  return `\u042d\u0442\u043e\u0442 \u0432\u0430\u0440\u0438\u0430\u043d\u0442 \u0432\u044b\u0431\u0440\u0430\u043b\u0438 ${percent}% \u0433\u0440\u0443\u043f\u043f\u044b`;
 }
 
 function getFieldTheme(field, index) {
@@ -825,28 +1337,28 @@ function createFieldAtmosphere(field, theme, index) {
 
   if (field?.promoTag || field?.promoTitle) {
     eyebrow.textContent = text(field.promoTag || `Chapter ${index + 1}`);
-    headline.textContent = text(field.promoTitle || field.label || "Секция формы");
-    subline.textContent = text(field.promoSubtitle || "Настройте продающий подзаголовок для этого блока прямо в конструкторе.");
+    headline.textContent = text(field.promoTitle || field.label || "\u0421\u0435\u043a\u0446\u0438\u044f \u0444\u043e\u0440\u043c\u044b");
+    subline.textContent = text(field.promoSubtitle || "\u041d\u0430\u0441\u0442\u0440\u043e\u0439\u0442\u0435 \u043f\u0440\u043e\u0434\u0430\u044e\u0449\u0438\u0439 \u043f\u043e\u0434\u0437\u0430\u0433\u043e\u043b\u043e\u0432\u043e\u043a \u0434\u043b\u044f \u044d\u0442\u043e\u0433\u043e \u0431\u043b\u043e\u043a\u0430 \u043f\u0440\u044f\u043c\u043e \u0432 \u043a\u043e\u043d\u0441\u0442\u0440\u0443\u043a\u0442\u043e\u0440\u0435.");
   } else if (theme === "estate") {
     eyebrow.textContent = "Cottage drop";
-    headline.textContent = "Соберите уикенд, который продает атмосферу коттеджа с первого экрана.";
-    subline.textContent = "Площадки, свет, банкет и воздух загородного вечера в одной воронке выбора.";
+    headline.textContent = "\u0421\u043e\u0431\u0435\u0440\u0438\u0442\u0435 \u0443\u0438\u043a\u0435\u043d\u0434, \u043a\u043e\u0442\u043e\u0440\u044b\u0439 \u043f\u0440\u043e\u0434\u0430\u0435\u0442 \u0430\u0442\u043c\u043e\u0441\u0444\u0435\u0440\u0443 \u043a\u043e\u0442\u0442\u0435\u0434\u0436\u0430 \u0441 \u043f\u0435\u0440\u0432\u043e\u0433\u043e \u044d\u043a\u0440\u0430\u043d\u0430.";
+    subline.textContent = "\u041f\u043b\u043e\u0449\u0430\u0434\u043a\u0438, \u0441\u0432\u0435\u0442, \u0431\u0430\u043d\u043a\u0435\u0442 \u0438 \u0432\u043e\u0437\u0434\u0443\u0445 \u0437\u0430\u0433\u043e\u0440\u043e\u0434\u043d\u043e\u0433\u043e \u0432\u0435\u0447\u0435\u0440\u0430 \u0432 \u043e\u0434\u043d\u043e\u0439 \u0432\u043e\u0440\u043e\u043d\u043a\u0435 \u0432\u044b\u0431\u043e\u0440\u0430.";
   } else if (theme === "alcohol") {
     eyebrow.textContent = "Afterparty mode";
-    headline.textContent = "Барная подача, лед, бокалы и правильный вайб вечеринки.";
-    subline.textContent = "Когда блок алкоголя появляется в зоне видимости, секция оживает как отдельный selling-момент.";
+    headline.textContent = "\u0411\u0430\u0440\u043d\u0430\u044f \u043f\u043e\u0434\u0430\u0447\u0430, \u043b\u0435\u0434, \u0431\u043e\u043a\u0430\u043b\u044b \u0438 \u043f\u0440\u0430\u0432\u0438\u043b\u044c\u043d\u044b\u0439 \u0432\u0430\u0439\u0431 \u0432\u0435\u0447\u0435\u0440\u0438\u043d\u043a\u0438.";
+    subline.textContent = "\u041a\u043e\u0433\u0434\u0430 \u0431\u043b\u043e\u043a \u0430\u043b\u043a\u043e\u0433\u043e\u043b\u044f \u043f\u043e\u044f\u0432\u043b\u044f\u0435\u0442\u0441\u044f \u0432 \u0437\u043e\u043d\u0435 \u0432\u0438\u0434\u0438\u043c\u043e\u0441\u0442\u0438, \u0441\u0435\u043a\u0446\u0438\u044f \u043e\u0436\u0438\u0432\u0430\u0435\u0442 \u043a\u0430\u043a \u043e\u0442\u0434\u0435\u043b\u044c\u043d\u044b\u0439 selling-\u043c\u043e\u043c\u0435\u043d\u0442.";
   } else if (theme === "feast") {
     eyebrow.textContent = "Taste direction";
-    headline.textContent = "Еда должна ощущаться как часть программы, а не как техническая строка.";
-    subline.textContent = "Соберите гастрономический сценарий под банкет, BBQ или неформальный фуршет.";
+    headline.textContent = "\u0415\u0434\u0430 \u0434\u043e\u043b\u0436\u043d\u0430 \u043e\u0449\u0443\u0449\u0430\u0442\u044c\u0441\u044f \u043a\u0430\u043a \u0447\u0430\u0441\u0442\u044c \u043f\u0440\u043e\u0433\u0440\u0430\u043c\u043c\u044b, \u0430 \u043d\u0435 \u043a\u0430\u043a \u0442\u0435\u0445\u043d\u0438\u0447\u0435\u0441\u043a\u0430\u044f \u0441\u0442\u0440\u043e\u043a\u0430.";
+    subline.textContent = "\u0421\u043e\u0431\u0435\u0440\u0438\u0442\u0435 \u0433\u0430\u0441\u0442\u0440\u043e\u043d\u043e\u043c\u0438\u0447\u0435\u0441\u043a\u0438\u0439 \u0441\u0446\u0435\u043d\u0430\u0440\u0438\u0439 \u043f\u043e\u0434 \u0431\u0430\u043d\u043a\u0435\u0442, BBQ \u0438\u043b\u0438 \u043d\u0435\u0444\u043e\u0440\u043c\u0430\u043b\u044c\u043d\u044b\u0439 \u0444\u0443\u0440\u0448\u0435\u0442.";
   } else if (theme === "show") {
     eyebrow.textContent = "Night rhythm";
-    headline.textContent = "Развлекательный блок задает ритм вечера и продает эмоцию заранее.";
-    subline.textContent = "Покажите гостям, что здесь будет не просто площадка, а полноценное событие.";
+    headline.textContent = "\u0420\u0430\u0437\u0432\u043b\u0435\u043a\u0430\u0442\u0435\u043b\u044c\u043d\u044b\u0439 \u0431\u043b\u043e\u043a \u0437\u0430\u0434\u0430\u0435\u0442 \u0440\u0438\u0442\u043c \u0432\u0435\u0447\u0435\u0440\u0430 \u0438 \u043f\u0440\u043e\u0434\u0430\u0435\u0442 \u044d\u043c\u043e\u0446\u0438\u044e \u0437\u0430\u0440\u0430\u043d\u0435\u0435.";
+    subline.textContent = "\u041f\u043e\u043a\u0430\u0436\u0438\u0442\u0435 \u0433\u043e\u0441\u0442\u044f\u043c, \u0447\u0442\u043e \u0437\u0434\u0435\u0441\u044c \u0431\u0443\u0434\u0435\u0442 \u043d\u0435 \u043f\u0440\u043e\u0441\u0442\u043e \u043f\u043b\u043e\u0449\u0430\u0434\u043a\u0430, \u0430 \u043f\u043e\u043b\u043d\u043e\u0446\u0435\u043d\u043d\u043e\u0435 \u0441\u043e\u0431\u044b\u0442\u0438\u0435.";
   } else {
     eyebrow.textContent = `Chapter ${index + 1}`;
-    headline.textContent = "Секция настроена как часть живой лендинговой истории.";
-    subline.textContent = "Текстуры, крупные акценты и разные ритмы помогают не уставать от длинной формы.";
+    headline.textContent = "\u0421\u0435\u043a\u0446\u0438\u044f \u043d\u0430\u0441\u0442\u0440\u043e\u0435\u043d\u0430 \u043a\u0430\u043a \u0447\u0430\u0441\u0442\u044c \u0436\u0438\u0432\u043e\u0439 \u043b\u0435\u043d\u0434\u0438\u043d\u0433\u043e\u0432\u043e\u0439 \u0438\u0441\u0442\u043e\u0440\u0438\u0438.";
+    subline.textContent = "\u0422\u0435\u043a\u0441\u0442\u0443\u0440\u044b, \u043a\u0440\u0443\u043f\u043d\u044b\u0435 \u0430\u043a\u0446\u0435\u043d\u0442\u044b \u0438 \u0440\u0430\u0437\u043d\u044b\u0435 \u0440\u0438\u0442\u043c\u044b \u043f\u043e\u043c\u043e\u0433\u0430\u044e\u0442 \u043d\u0435 \u0443\u0441\u0442\u0430\u0432\u0430\u0442\u044c \u043e\u0442 \u0434\u043b\u0438\u043d\u043d\u043e\u0439 \u0444\u043e\u0440\u043c\u044b.";
   }
 
   banner.append(eyebrow, headline, subline);
@@ -1032,7 +1544,7 @@ function createOptionNode(field, option, people) {
     const detailsBtn = document.createElement("button");
     detailsBtn.type = "button";
     detailsBtn.className = "option-details-trigger";
-    detailsBtn.textContent = "Подробнее";
+    detailsBtn.textContent = "\u041f\u043e\u0434\u0440\u043e\u0431\u043d\u0435\u0435";
     detailsBtn.setAttribute("aria-expanded", isDetailsOpen ? "true" : "false");
     detailsBtn.classList.toggle("option-details-trigger-active", isDetailsOpen);
 
@@ -1072,7 +1584,7 @@ function createOptionNode(field, option, people) {
       : buildDesktopMapHref(option.mapUrl, option.label);
     mapBtn.target = isMobileDevice() ? "_self" : "_blank";
     mapBtn.rel = "noreferrer noopener";
-    mapBtn.textContent = "Локация";
+    mapBtn.textContent = "\u041b\u043e\u043a\u0430\u0446\u0438\u044f";
     mapBtn.addEventListener("click", event => {
       event.stopPropagation();
       if (isMobileDevice()) {
@@ -1154,6 +1666,41 @@ function renderField(field, container, index) {
     wrapper.appendChild(input);
   }
 
+  if (field.type === "date") {
+    const dateWrap = document.createElement("div");
+    dateWrap.className = "date-field-wrap";
+
+    const input = document.createElement("input");
+    input.type = "date";
+    input.className = "date-field-input";
+    input.value = state.values[field.id] || "";
+    input.addEventListener("change", event => {
+      state.values[field.id] = event.target.value;
+      saveDraft();
+      refreshUI(true);
+    });
+    input.addEventListener("click", () => {
+      if (typeof input.showPicker === "function") {
+        input.showPicker();
+      }
+    });
+
+    dateWrap.appendChild(input);
+
+    const popularityMeta = getFieldPopularityMeta(field, input.value);
+    dateWrap.appendChild(createDateCalendar(field, input.value));
+
+    if (input.value && popularityMeta.percent > 0) {
+      dateWrap.dataset.popularity = getDatePopularityTone(popularityMeta.percent);
+      const note = document.createElement("div");
+      note.className = "date-field-popularity";
+      note.textContent = `\u042d\u0442\u0443 \u0434\u0430\u0442\u0443 \u0432\u044b\u0431\u0440\u0430\u043b\u0438 ${popularityMeta.percent}% \u0433\u0440\u0443\u043f\u043f\u044b`;
+      dateWrap.appendChild(note);
+    }
+
+    wrapper.appendChild(dateWrap);
+  }
+
   if (Array.isArray(field.options) && field.options.length) {
     if (field.appearance === "media-carousel") {
       const carousel = document.createElement("div");
@@ -1162,7 +1709,7 @@ function renderField(field, container, index) {
       const previousBtn = document.createElement("button");
       previousBtn.type = "button";
       previousBtn.className = "option-carousel-nav option-carousel-prev";
-      previousBtn.textContent = "←";
+      previousBtn.textContent = "<";
 
       const track = document.createElement("div");
       track.className = "option-carousel-track";
@@ -1171,14 +1718,14 @@ function renderField(field, container, index) {
       const nextBtn = document.createElement("button");
       nextBtn.type = "button";
       nextBtn.className = "option-carousel-nav option-carousel-next";
-      nextBtn.textContent = "→";
+      nextBtn.textContent = ">";
 
       const mobileHint = document.createElement("div");
       mobileHint.className = "option-carousel-hint";
-      mobileHint.textContent = "Листайте карточки или используйте стрелки";
+      mobileHint.textContent = "\u041b\u0438\u0441\u0442\u0430\u0439\u0442\u0435 \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0438 \u0438\u043b\u0438 \u0438\u0441\u043f\u043e\u043b\u044c\u0437\u0443\u0439\u0442\u0435 \u0441\u0442\u0440\u0435\u043b\u043a\u0438";
 
       field.options.forEach(option => {
-        track.appendChild(createOptionNode(field, option, getParticipantCount()));
+        track.appendChild(createOptionNode(field, option, getPricingParticipantCount()));
       });
 
       carousel.append(previousBtn, track, nextBtn, mobileHint);
@@ -1186,7 +1733,7 @@ function renderField(field, container, index) {
       wrapper.appendChild(carousel);
     } else {
       field.options.forEach(option => {
-        wrapper.appendChild(createOptionNode(field, option, getParticipantCount()));
+        wrapper.appendChild(createOptionNode(field, option, getPricingParticipantCount()));
       });
     }
   }
@@ -1216,11 +1763,11 @@ function calculateTotal() {
   let total = 0;
 
   forEachSelectedOption(getFields(), (_, option) => {
-    total += calcItem(option, getParticipantCount());
+    total += calcItem(option, getPricingParticipantCount());
   });
 
   const ticketLabel = text(state.uiConfig.ticketLabel || getDefaultUiConfig().ticketLabel);
-  ui.perPerson.textContent = `${ticketLabel}: ${formatPerPerson(total, getParticipantCount())}`;
+  ui.perPerson.textContent = `${ticketLabel}: ${formatPerPerson(total, getPricingParticipantCount())}`;
   return total;
 }
 
@@ -1229,23 +1776,23 @@ function generateDetails() {
   let total = 0;
 
   forEachSelectedOption(getFields(), (_, option) => {
-    const sum = calcItem(option, getParticipantCount());
+    const sum = calcItem(option, getPricingParticipantCount());
     total += sum;
 
     rows.push(`
       <tr>
         <td>${option.label}</td>
         <td>${formatTotal(sum)}</td>
-        <td>${formatPerPerson(sum, getParticipantCount())}</td>
+        <td>${formatPerPerson(sum, getPricingParticipantCount())}</td>
       </tr>
     `);
   });
 
   rows.push(`
     <tr class="check-table-total">
-      <td><b>Итого</b></td>
+      <td><b>\u0418\u0442\u043e\u0433\u043e</b></td>
       <td><b>${formatTotal(total)}</b></td>
-      <td><b>${formatPerPerson(total, getParticipantCount())}</b></td>
+      <td><b>${formatPerPerson(total, getPricingParticipantCount())}</b></td>
     </tr>
   `);
 
@@ -1254,9 +1801,9 @@ function generateDetails() {
       <table class="check-table">
         <thead>
           <tr>
-            <th>Позиция</th>
-            <th>Общий чек</th>
-            <th>На человека</th>
+            <th>\u041f\u043e\u0437\u0438\u0446\u0438\u044f</th>
+            <th>\u041e\u0431\u0449\u0438\u0439 \u0447\u0435\u043a</th>
+            <th>\u041d\u0430 \u0447\u0435\u043b\u043e\u0432\u0435\u043a\u0430</th>
           </tr>
         </thead>
         <tbody>${rows.join("")}</tbody>
@@ -1276,7 +1823,7 @@ function applyUiConfig() {
   };
 
   if (ui.pageTitle) {
-    ui.pageTitle.textContent = text(cfg.pageTitle);
+    ui.pageTitle.textContent = text(state.formMeta.title || "Командообразование ЦРС");
   }
 
   if (ui.heroKicker) {
@@ -1297,6 +1844,11 @@ function applyUiConfig() {
 
   if (ui.heroNote) {
     ui.heroNote.textContent = text(cfg.heroNote);
+  }
+
+  if (ui.adminEntryLink) {
+    ui.adminEntryLink.textContent = "\u0412\u043e\u0439\u0442\u0438";
+    ui.adminEntryLink.href = getBuilderEntryHref();
   }
 
   if (ui.userSectionTitle) {
@@ -1320,7 +1872,7 @@ function applyUiConfig() {
   }
 
   if (ui.participantsCount) {
-    ui.participantsCount.textContent = getParticipantCount();
+    ui.participantsCount.textContent = getDisplayParticipantCount();
   }
 
   if (ui.responsesStatLabel) {
@@ -1356,27 +1908,17 @@ function applyUiConfig() {
 function updateSubmitUi() {
   applyUiConfig();
   const profileError = getProfileError();
-
   ui.profileError.textContent = profileError;
   ui.profileError.classList.toggle("hidden-text", !profileError);
-
   ui.name.classList.toggle("input-error", isEmptyValue(state.profile.name));
   ui.group.classList.toggle("input-error", isEmptyValue(state.profile.group));
-
   ui.detailsBtn.disabled = false;
   ui.saveBtn.disabled = state.isSubmitting;
-  ui.saveBtn.textContent = state.isSubmitting
-    ? "Отправка..."
-    : state.meta.hasSubmitted
-      ? text(state.uiConfig.resubmitButtonLabel || getDefaultUiConfig().resubmitButtonLabel)
-      : text(state.uiConfig.saveButtonLabel || getDefaultUiConfig().saveButtonLabel);
-
+  ui.saveBtn.textContent = state.isSubmitting ? "\u041e\u0442\u043f\u0440\u0430\u0432\u043a\u0430..." : state.meta.hasSubmitted ? text(state.uiConfig.resubmitButtonLabel || getDefaultUiConfig().resubmitButtonLabel) : text(state.uiConfig.saveButtonLabel || getDefaultUiConfig().saveButtonLabel);
   if (state.meta.hasSubmitted && state.meta.lastSubmittedAt && !state.isSubmitting) {
-    ui.submitStatus.textContent = `Ответ сохранён. Вы можете изменить форму и отправить обновлённый вариант. Последнее обновление: ${new Date(state.meta.lastSubmittedAt).toLocaleString("ru-RU")}`;
+    ui.submitStatus.textContent = `\u0424\u043e\u0440\u043c\u0430 \u0443\u0436\u0435 \u043e\u0442\u043f\u0440\u0430\u0432\u043b\u0435\u043d\u0430. \u0412\u044b \u043c\u043e\u0436\u0435\u0442\u0435 \u0438\u0437\u043c\u0435\u043d\u0438\u0442\u044c \u0432\u044b\u0431\u043e\u0440 \u0438 \u043e\u0442\u043f\u0440\u0430\u0432\u0438\u0442\u044c \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u043d\u0443\u044e \u0432\u0435\u0440\u0441\u0438\u044e. \u041f\u043e\u0441\u043b\u0435\u0434\u043d\u0435\u0435 \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u0438\u0435: ${new Date(state.meta.lastSubmittedAt).toLocaleString("ru-RU")}`;
   } else if (!state.isSubmitting && !state.meta.hasSubmitted && !profileError) {
-    ui.submitStatus.textContent = CONFIG.api.baseUrl
-      ? text(state.uiConfig.draftStatusText || getDefaultUiConfig().draftStatusText)
-      : "Сейчас включён только локальный режим. Чтобы записи попадали в базу данных, запустите backend и проверьте CONFIG.api.baseUrl.";
+    ui.submitStatus.textContent = CONFIG.api.baseUrl ? text(state.uiConfig.draftStatusText || getDefaultUiConfig().draftStatusText) : "\u041f\u043e\u0441\u043b\u0435 \u043e\u0442\u043f\u0440\u0430\u0432\u043a\u0438 \u0432\u044b\u0431\u043e\u0440 \u0441\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u0441\u044f \u043b\u043e\u043a\u0430\u043b\u044c\u043d\u043e. \u0414\u043b\u044f \u0441\u0438\u043d\u0445\u0440\u043e\u043d\u0438\u0437\u0430\u0446\u0438\u0438 \u0441 \u0431\u0430\u0437\u043e\u0439 \u043f\u043e\u0434\u043a\u043b\u044e\u0447\u0438\u0442\u0435 backend \u0438 \u0443\u043a\u0430\u0436\u0438\u0442\u0435 CONFIG.api.baseUrl.";
   }
 }
 
@@ -1407,7 +1949,7 @@ function closeDetails() {
 
 function readDraft() {
   try {
-    return JSON.parse(localStorage.getItem(CONFIG.storage.draftKey) || "null");
+    return JSON.parse(localStorage.getItem(getScopedStorageKey(CONFIG.storage.draftKey)) || "null");
   } catch {
     return null;
   }
@@ -1420,7 +1962,7 @@ function saveDraft() {
     meta: state.meta
   };
 
-  localStorage.setItem(CONFIG.storage.draftKey, JSON.stringify(draft));
+  localStorage.setItem(getScopedStorageKey(CONFIG.storage.draftKey), JSON.stringify(draft));
 }
 
 function hydrateDraft() {
@@ -1454,7 +1996,7 @@ function hydrateDraft() {
 
 function readSchema() {
   try {
-    return JSON.parse(localStorage.getItem(CONFIG.storage.schemaKey) || "null");
+    return JSON.parse(localStorage.getItem(getScopedStorageKey(CONFIG.storage.schemaKey)) || "null");
   } catch {
     return null;
   }
@@ -1462,23 +2004,23 @@ function readSchema() {
 
 function readUiConfig() {
   try {
-    return JSON.parse(localStorage.getItem(CONFIG.storage.uiConfigKey) || "null");
+    return JSON.parse(localStorage.getItem(getScopedStorageKey(CONFIG.storage.uiConfigKey)) || "null");
   } catch {
     return null;
   }
 }
 
 function saveSchema() {
-  localStorage.setItem(CONFIG.storage.schemaKey, JSON.stringify(state.schema));
+  localStorage.setItem(getScopedStorageKey(CONFIG.storage.schemaKey), JSON.stringify(state.schema));
 }
 
 function saveUiConfig() {
-  localStorage.setItem(CONFIG.storage.uiConfigKey, JSON.stringify(state.uiConfig));
+  localStorage.setItem(getScopedStorageKey(CONFIG.storage.uiConfigKey), JSON.stringify(state.uiConfig));
 }
 
 function hydrateSchema() {
   const localSchema = readSchema();
-  state.schema = Array.isArray(localSchema) && localSchema.length
+  state.schema = Array.isArray(localSchema)
     ? normalizeSchema(localSchema)
     : getDefaultSchema();
 
@@ -1490,35 +2032,52 @@ function hydrateSchema() {
 }
 
 async function loadRemoteSchema() {
-  if (!CONFIG.api.baseUrl || !window.FormApi || typeof FormApi.fetchSchema !== "function") {
-    return;
-  }
+  return runWithLoading(isBuilderPage() ? "\u0417\u0430\u0433\u0440\u0443\u0436\u0430\u0435\u043c \u0444\u043e\u0440\u043c\u0443..." : "\u0413\u043e\u0442\u043e\u0432\u0438\u043c \u0444\u043e\u0440\u043c\u0443...", async () => {
+    if (isBuilderPage() && !hasSelectedBuilderForm()) {
+      return;
+    }
 
-  const remoteSchema = await FormApi.fetchSchema(CONFIG);
-  const remoteFields = Array.isArray(remoteSchema?.schema) ? remoteSchema.schema : Array.isArray(remoteSchema) ? remoteSchema : [];
-  const remoteUiConfig = remoteSchema && typeof remoteSchema === "object" && !Array.isArray(remoteSchema)
-    ? remoteSchema.uiConfig
-    : null;
+    if (!CONFIG.api.baseUrl || !window.FormApi || typeof FormApi.fetchSchema !== "function") {
+      return;
+    }
 
-  if (Array.isArray(remoteFields) && remoteFields.length) {
-    state.schema = normalizeSchema(remoteFields);
-    saveSchema();
-  }
+    const remoteSchema = await FormApi.fetchSchema(CONFIG);
+    const remoteFields = Array.isArray(remoteSchema?.schema) ? remoteSchema.schema : Array.isArray(remoteSchema) ? remoteSchema : [];
+    const remoteUiConfig = remoteSchema && typeof remoteSchema === "object" && !Array.isArray(remoteSchema)
+      ? remoteSchema.uiConfig
+      : null;
+    const remoteTitle = remoteSchema && typeof remoteSchema === "object" && !Array.isArray(remoteSchema)
+      ? cleanString(remoteSchema.title || "")
+      : "";
+    const remoteSlug = remoteSchema && typeof remoteSchema === "object" && !Array.isArray(remoteSchema)
+      ? cleanString(remoteSchema.slug || "")
+      : "";
 
-  if (remoteUiConfig && typeof remoteUiConfig === "object") {
-    state.uiConfig = {
-      ...getDefaultUiConfig(),
-      ...normalizeUiConfig(remoteUiConfig)
-    };
-    saveUiConfig();
-  }
+    if (Array.isArray(remoteFields)) {
+      state.schema = normalizeSchema(remoteFields);
+      saveSchema();
+    }
 
-  if ((state.schema.length || Object.keys(state.uiConfig).length) && typeof FormApi.saveSchema === "function" && getAdminToken()) {
-    await FormApi.saveSchema(CONFIG, state.schema, state.uiConfig, getAdminToken());
-  }
+    if (remoteUiConfig && typeof remoteUiConfig === "object") {
+      state.uiConfig = {
+        ...getDefaultUiConfig(),
+        ...normalizeUiConfig(remoteUiConfig)
+      };
+      saveUiConfig();
+    }
+
+    if (!isBuilderPage()) {
+      state.formMeta.title = remoteTitle;
+      state.formMeta.slug = remoteSlug;
+    }
+  });
 }
 
 function queueSchemaSync() {
+  if (isBuilderPage() && !hasSelectedBuilderForm()) {
+    return;
+  }
+
   if (!CONFIG.api.baseUrl || !window.FormApi || typeof FormApi.saveSchema !== "function") {
     return;
   }
@@ -1530,11 +2089,16 @@ function queueSchemaSync() {
   state.schemaSync.timerId = window.setTimeout(async () => {
     state.schemaSync.timerId = 0;
     state.schemaSync.isSaving = true;
+    setBuilderSaveIndicator("\u0421\u0438\u043d\u0445\u0440\u043e\u043d\u0438\u0437\u0438\u0440\u0443\u0435\u043c \u0441 backend...", "saving");
 
     try {
-      await FormApi.saveSchema(CONFIG, state.schema, state.uiConfig, getAdminToken());
+      const result = await FormApi.saveSchema(CONFIG, state.schema, state.uiConfig, getBuilderBearerToken(), getBuilderFormMetaPayload());
+      if (result?.form?.slug) {
+        setSelectedBuilderFormMeta(result.form);
+      }
+      setBuilderSaveIndicator("\u0412\u0441\u0435 \u0438\u0437\u043c\u0435\u043d\u0435\u043d\u0438\u044f \u0441\u043e\u0445\u0440\u0430\u043d\u0435\u043d\u044b", "saved");
       if (isBuilderPage() && ui.submitStatus) {
-        ui.submitStatus.textContent = "Изменения схемы сохранены и синхронизированы с базой данных.";
+        ui.submitStatus.textContent = "\u0418\u0437\u043c\u0435\u043d\u0435\u043d\u0438\u044f \u0441\u0445\u0435\u043c\u044b \u043f\u043e\u043a\u0430 \u0441\u043e\u0445\u0440\u0430\u043d\u044f\u044e\u0442\u0441\u044f \u0442\u043e\u043b\u044c\u043a\u043e \u043b\u043e\u043a\u0430\u043b\u044c\u043d\u043e \u0438 \u043f\u043e\u044f\u0432\u044f\u0442\u0441\u044f \u0432 \u0444\u043e\u0440\u043c\u0435 \u043f\u043e\u0441\u043b\u0435 \u043f\u0443\u0431\u043b\u0438\u043a\u0430\u0446\u0438\u0438 backend API.";
       }
     } catch (error) {
       console.error(error);
@@ -1542,8 +2106,9 @@ function queueSchemaSync() {
         setAdminToken("");
       }
       if (!state.isSubmitting) {
-        ui.submitStatus.textContent = "Не удалось синхронизировать изменения конструктора с базой данных. Локальная схема сохранена.";
+        ui.submitStatus.textContent = "\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0430\u0432\u0442\u043e\u043c\u0430\u0442\u0438\u0447\u0435\u0441\u043a\u0438 \u0441\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c \u0438\u0437\u043c\u0435\u043d\u0435\u043d\u0438\u044f \u0432 \u0444\u043e\u0440\u043c\u0443. \u041f\u0440\u043e\u0432\u0435\u0440\u044c\u0442\u0435 \u043d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438 API.";
       }
+      setBuilderSaveIndicator("\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0441\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c", "error");
     } finally {
       state.schemaSync.isSaving = false;
     }
@@ -1554,43 +2119,208 @@ async function saveSchemaNow() {
   saveSchema();
   saveUiConfig();
 
+  if (isBuilderPage() && !hasSelectedBuilderForm()) {
+    ui.submitStatus.textContent = "\u0421\u043d\u0430\u0447\u0430\u043b\u0430 \u0432\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0444\u043e\u0440\u043c\u0443 \u0438\u043b\u0438 \u0441\u043e\u0437\u0434\u0430\u0439\u0442\u0435 \u043d\u043e\u0432\u0443\u044e.";
+    return;
+  }
+
   if (!CONFIG.api.baseUrl || !window.FormApi || typeof FormApi.saveSchema !== "function") {
-    ui.submitStatus.textContent = "Схема сохранена локально. Для синхронизации укажите URL backend API.";
+    ui.submitStatus.textContent = "\u041d\u0435 \u043d\u0430\u0441\u0442\u0440\u043e\u0435\u043d backend API. \u0423\u043a\u0430\u0436\u0438\u0442\u0435 \u043a\u043e\u0440\u0440\u0435\u043a\u0442\u043d\u044b\u0439 URL backend API.";
     return;
   }
 
   try {
-    ui.submitStatus.textContent = "Сохраняем изменения...";
-    await FormApi.saveSchema(CONFIG, state.schema, state.uiConfig, getAdminToken());
-    ui.submitStatus.textContent = "Изменения сохранены и синхронизированы с базой данных.";
+    setBuilderSaveIndicator("\u0421\u043e\u0445\u0440\u0430\u043d\u044f\u0435\u043c \u0432\u0440\u0443\u0447\u043d\u0443\u044e...", "saving");
+    ui.submitStatus.textContent = "\u0421\u043e\u0445\u0440\u0430\u043d\u044f\u0435\u043c \u0441\u0445\u0435\u043c\u0443...";
+    const result = await FormApi.saveSchema(CONFIG, state.schema, state.uiConfig, getBuilderBearerToken(), getBuilderFormMetaPayload());
+    if (result?.form?.slug) {
+      setSelectedBuilderFormMeta(result.form);
+    }
+    ui.submitStatus.textContent = "\u0421\u0445\u0435\u043c\u0430 \u0444\u043e\u0440\u043c\u044b \u0438 \u043d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438 \u0443\u0441\u043f\u0435\u0448\u043d\u043e \u0441\u043e\u0445\u0440\u0430\u043d\u0435\u043d\u044b.";
+    setBuilderSaveIndicator("\u0412\u0441\u0435 \u0438\u0437\u043c\u0435\u043d\u0435\u043d\u0438\u044f \u0441\u043e\u0445\u0440\u0430\u043d\u0435\u043d\u044b", "saved");
   } catch (error) {
     console.error(error);
     if (String(error.message || "").toLowerCase().includes("admin")) {
       setAdminToken("");
-      ui.submitStatus.textContent = "Сессия администратора истекла. Войдите в конструктор заново и повторите сохранение.";
+      ui.submitStatus.textContent = "\u0421\u0435\u0441\u0441\u0438\u044f \u0430\u0434\u043c\u0438\u043d\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440\u0430 \u0438\u0441\u0442\u0435\u043a\u043b\u0430. \u0412\u043e\u0439\u0434\u0438\u0442\u0435 \u0432 \u043a\u043e\u043d\u0441\u0442\u0440\u0443\u043a\u0442\u043e\u0440 \u0437\u0430\u043d\u043e\u0432\u043e \u0438 \u043f\u043e\u0432\u0442\u043e\u0440\u0438\u0442\u0435 \u0441\u043e\u0445\u0440\u0430\u043d\u0435\u043d\u0438\u0435.";
+      setBuilderSaveIndicator("\u0421\u0435\u0441\u0441\u0438\u044f \u0438\u0441\u0442\u0435\u043a\u043b\u0430", "error");
       return;
     }
-    ui.submitStatus.textContent = `Не удалось сохранить схему в базе данных: ${error.message || "неизвестная ошибка"}. Локальная версия сохранена.`;
+    ui.submitStatus.textContent = `\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0441\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c \u0441\u0445\u0435\u043c\u0443 \u0438\u043b\u0438 \u0444\u043e\u0440\u043c\u0443: ${error.message || "\u043d\u0435\u0438\u0437\u0432\u0435\u0441\u0442\u043d\u0430\u044f \u043e\u0448\u0438\u0431\u043a\u0430"}. \u041f\u0440\u043e\u0432\u0435\u0440\u044c\u0442\u0435 \u043d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438 API.`;
+    setBuilderSaveIndicator("\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0441\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c", "error");
   }
 }
 
+function getScopedStorageKey(baseKey) {
+  const slug = cleanString(CONFIG.form?.slug || "").trim();
+  return slug ? `${baseKey}:${slug}` : baseKey;
+}
+
 async function loadResponsesPreview() {
-  if (!window.FormApi || typeof FormApi.fetchResponses !== "function") {
+  return runWithLoading("\u0417\u0430\u0433\u0440\u0443\u0436\u0430\u0435\u043c \u043e\u0442\u0432\u0435\u0442\u044b...", async () => {
+    if (isBuilderPage() && !hasSelectedBuilderForm()) {
+      state.builder.responses.headers = [];
+      state.builder.responses.rows = [];
+      state.builder.responses.records = [];
+      state.builder.responses.selectedKeys = [];
+      return;
+    }
+
+    if (!window.FormApi || typeof FormApi.fetchResponses !== "function") {
+      return;
+    }
+
+    state.builder.responses.loading = true;
+    try {
+      const result = await FormApi.fetchResponses(CONFIG, getBuilderBearerToken());
+      state.builder.responses.headers = Array.isArray(result.headers) ? result.headers : [];
+      state.builder.responses.rows = Array.isArray(result.rows) ? result.rows : [];
+      state.builder.responses.records = Array.isArray(result.records) ? result.records : [];
+      state.builder.responses.selectedKeys = state.builder.responses.selectedKeys.filter(key =>
+        state.builder.responses.records.some(record => cleanString(record?.submissionKey) === key)
+      );
+    } catch (error) {
+      console.error(error);
+      state.builder.responses.headers = [];
+      state.builder.responses.rows = [];
+      state.builder.responses.records = [];
+      state.builder.responses.selectedKeys = [];
+      ui.submitStatus.textContent = `\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u043e\u0442\u0432\u0435\u0442\u044b: ${cleanString(error?.message || "\u043e\u0448\u0438\u0431\u043a\u0430")}`;
+    } finally {
+      state.builder.responses.loading = false;
+      renderBuilder();
+    }
+  });
+}
+
+async function loadBuilderMembers() {
+  if (!hasSelectedBuilderForm()) {
+    state.builder.members.items = [];
+    state.builder.members.error = "";
     return;
   }
 
-  state.builder.responses.loading = true;
+  if (!window.FormApi || typeof FormApi.listMembers !== "function") {
+    return;
+  }
+
+  state.builder.members.loading = true;
+  state.builder.members.error = "";
+  renderBuilder();
   try {
-    const result = await FormApi.fetchResponses(CONFIG, getAdminToken());
-    state.builder.responses.headers = Array.isArray(result.headers) ? result.headers : [];
-    state.builder.responses.rows = Array.isArray(result.rows) ? result.rows : [];
+    const result = await FormApi.listMembers(CONFIG, getBuilderBearerToken());
+    state.builder.members.items = Array.isArray(result.members) ? result.members : [];
   } catch (error) {
-    console.error(error);
-    state.builder.responses.headers = [];
-    state.builder.responses.rows = [];
-    ui.submitStatus.textContent = `Не удалось загрузить ответы: ${error.message || "ошибка"}`;
+    state.builder.members.items = [];
+    state.builder.members.error = cleanString(error?.message || "\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u043f\u0440\u0430\u0432\u0430.");
   } finally {
-    state.builder.responses.loading = false;
+    state.builder.members.loading = false;
+    renderBuilder();
+  }
+}
+
+async function inviteBuilderMember() {
+  const email = cleanString(state.builder.members.draftEmail).toLowerCase();
+  const role = cleanString(state.builder.members.draftRole || "editor");
+  if (!email) {
+    ui.submitStatus.textContent = "\u0412\u0432\u0435\u0434\u0438\u0442\u0435 email \u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044f.";
+    return;
+  }
+
+  try {
+    ui.submitStatus.textContent = "\u0414\u043e\u0431\u0430\u0432\u043b\u044f\u0435\u043c \u0434\u043e\u0441\u0442\u0443\u043f...";
+    await FormApi.addMember(CONFIG, { email, role }, getBuilderBearerToken());
+    state.builder.members.draftEmail = "";
+    state.builder.members.draftRole = "editor";
+    await loadBuilderMembers();
+    ui.submitStatus.textContent = "\u0414\u043e\u0441\u0442\u0443\u043f \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d.";
+  } catch (error) {
+    ui.submitStatus.textContent = `\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0432\u044b\u0434\u0430\u0442\u044c \u0434\u043e\u0441\u0442\u0443\u043f: ${cleanString(error?.message || "\u043e\u0448\u0438\u0431\u043a\u0430")}`;
+  }
+}
+
+async function updateBuilderMemberRole(member, role) {
+  try {
+    await FormApi.updateMember(CONFIG, member.userId, { role }, getBuilderBearerToken());
+    await loadBuilderMembers();
+    ui.submitStatus.textContent = "\u0420\u043e\u043b\u044c \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u0430.";
+  } catch (error) {
+    ui.submitStatus.textContent = `\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u043e\u0431\u043d\u043e\u0432\u0438\u0442\u044c \u0440\u043e\u043b\u044c: ${cleanString(error?.message || "\u043e\u0448\u0438\u0431\u043a\u0430")}`;
+  }
+}
+
+async function removeBuilderMember(member) {
+  if (!window.confirm(`\u0423\u0431\u0440\u0430\u0442\u044c \u0434\u043e\u0441\u0442\u0443\u043f \u0434\u043b\u044f ${cleanString(member.email || member.userId)}?`)) {
+    return;
+  }
+
+  try {
+    await FormApi.removeMember(CONFIG, member.userId, getBuilderBearerToken());
+    await loadBuilderMembers();
+    ui.submitStatus.textContent = "\u0414\u043e\u0441\u0442\u0443\u043f \u0443\u0434\u0430\u043b\u0435\u043d.";
+  } catch (error) {
+    ui.submitStatus.textContent = `\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0443\u0434\u0430\u043b\u0438\u0442\u044c \u0434\u043e\u0441\u0442\u0443\u043f: ${cleanString(error?.message || "\u043e\u0448\u0438\u0431\u043a\u0430")}`;
+  }
+}
+
+function toggleResponseSelection(submissionKey, checked) {
+  const key = cleanString(submissionKey || "");
+  if (!key) {
+    return;
+  }
+
+  const next = new Set(state.builder.responses.selectedKeys);
+  if (checked) {
+    next.add(key);
+  } else {
+    next.delete(key);
+  }
+  state.builder.responses.selectedKeys = Array.from(next);
+}
+
+function toggleAllResponsesSelection(checked) {
+  state.builder.responses.selectedKeys = checked
+    ? state.builder.responses.records.map(record => cleanString(record?.submissionKey)).filter(Boolean)
+    : [];
+}
+
+async function deleteResponseRow(submissionKey) {
+  const key = cleanString(submissionKey || "");
+  if (!key || !hasSelectedBuilderForm()) {
+    return;
+  }
+
+  try {
+    ui.submitStatus.textContent = "\u0423\u0434\u0430\u043b\u044f\u0435\u043c \u043e\u0442\u0432\u0435\u0442...";
+    await FormApi.deleteResponse(CONFIG, key, getBuilderBearerToken());
+    await loadResponsesPreview();
+    ui.submitStatus.textContent = "\u041e\u0442\u0432\u0435\u0442 \u0443\u0434\u0430\u043b\u0435\u043d.";
+    renderBuilder();
+  } catch (error) {
+    ui.submitStatus.textContent = `\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0443\u0434\u0430\u043b\u0438\u0442\u044c \u043e\u0442\u0432\u0435\u0442: ${cleanString(error?.message || "\u043e\u0448\u0438\u0431\u043a\u0430")}`;
+  }
+}
+
+async function deleteSelectedResponses() {
+  if (!state.builder.responses.selectedKeys.length || !hasSelectedBuilderForm()) {
+    return;
+  }
+
+  if (!window.confirm(`\u0423\u0434\u0430\u043b\u0438\u0442\u044c \u0432\u044b\u0431\u0440\u0430\u043d\u043d\u044b\u0435 \u043e\u0442\u0432\u0435\u0442\u044b (${state.builder.responses.selectedKeys.length})? \u042d\u0442\u043e \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0435 \u043d\u0435\u043b\u044c\u0437\u044f \u043e\u0442\u043c\u0435\u043d\u0438\u0442\u044c.`)) {
+    return;
+  }
+
+  ui.submitStatus.textContent = "\u0423\u0434\u0430\u043b\u044f\u0435\u043c \u0432\u044b\u0431\u0440\u0430\u043d\u043d\u044b\u0435 \u043e\u0442\u0432\u0435\u0442\u044b...";
+  try {
+    for (const submissionKey of state.builder.responses.selectedKeys) {
+      await FormApi.deleteResponse(CONFIG, submissionKey, getBuilderBearerToken());
+    }
+    state.builder.responses.selectedKeys = [];
+    await loadResponsesPreview();
+    ui.submitStatus.textContent = "\u0412\u044b\u0431\u0440\u0430\u043d\u043d\u044b\u0435 \u043e\u0442\u0432\u0435\u0442\u044b \u0443\u0434\u0430\u043b\u0435\u043d\u044b.";
+    renderBuilder();
+  } catch (error) {
+    ui.submitStatus.textContent = `\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0443\u0434\u0430\u043b\u0438\u0442\u044c \u0432\u044b\u0431\u0440\u0430\u043d\u043d\u044b\u0435 \u043e\u0442\u0432\u0435\u0442\u044b: ${cleanString(error?.message || "\u043e\u0448\u0438\u0431\u043a\u0430")}`;
   }
 }
 
@@ -1615,7 +2345,7 @@ function buildAnswersForSubmission(fields = getFields()) {
       if (option && !option.locked) {
         answers[field.id] = value;
       }
-    } else if (field.type === "text" && !isEmptyValue(value)) {
+    } else if ((field.type === "text" || field.type === "date") && !isEmptyValue(value)) {
       answers[field.id] = value;
     }
 
@@ -1649,12 +2379,14 @@ function buildSubmissionPayload() {
     submissionId: state.meta.submissionId,
     name: state.profile.name,
     group: state.profile.group,
-    participants: getParticipantCount(),
+    participants: getPricingParticipantCount(),
+    pricingParticipants: getPricingParticipantCount(),
+    displayParticipants: getDisplayParticipantCount(),
     schema: getFields(),
     answers: buildAnswersForSubmission(),
     summary: buildSelectedSummary(),
     total,
-    perPerson: Math.round(total / getParticipantCount()),
+    perPerson: Math.round(total / getPricingParticipantCount()),
     updatedAt: new Date().toISOString()
   };
 }
@@ -1681,21 +2413,17 @@ function openConfirmModal(action) {
   state.pendingConfirmAction = action;
 
   if (action === "reset-schema") {
-    ui.confirmTitle.textContent = "Вернуть исходную форму?";
-    ui.confirmText.textContent = "Мы удалим локально сохранённую схему конструктора и восстановим исходную структуру формы из config.js.";
-    ui.confirmSubmitBtn.textContent = "Да, восстановить";
+    ui.confirmTitle.textContent = "\u0421\u0431\u0440\u043e\u0441\u0438\u0442\u044c \u0441\u0445\u0435\u043c\u0443 \u0444\u043e\u0440\u043c\u044b?";
+    ui.confirmText.textContent = "\u041c\u044b \u0437\u0430\u043c\u0435\u043d\u0438\u043c \u0442\u0435\u043a\u0443\u0449\u0443\u044e \u0441\u0445\u0435\u043c\u0443 \u0432\u043e\u043f\u0440\u043e\u0441\u0430\u043c\u0438 \u0438 \u043d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0430\u043c\u0438 \u0438\u0437 config.js.";
+    ui.confirmSubmitBtn.textContent = "\u0414\u0430, \u0441\u0431\u0440\u043e\u0441\u0438\u0442\u044c";
   } else if (action === "reset-all-data") {
-    ui.confirmTitle.textContent = "Полностью удалить данные пользователей?";
-    ui.confirmText.textContent = "Мы очистим все ответы пользователей локально и удалим их из базы данных. Схема формы останется, но ответы, статистика и черновики будут удалены.";
-    ui.confirmSubmitBtn.textContent = "Да, удалить всё";
+    ui.confirmTitle.textContent = "\u0423\u0434\u0430\u043b\u0438\u0442\u044c \u0432\u0441\u0435 \u043e\u0442\u0432\u0435\u0442\u044b \u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u0435\u0439?";
+    ui.confirmText.textContent = "\u0412\u0441\u0435 \u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044c\u0441\u043a\u0438\u0435 \u043e\u0442\u0432\u0435\u0442\u044b \u0434\u043b\u044f \u0442\u0435\u043a\u0443\u0449\u0435\u0439 \u0444\u043e\u0440\u043c\u044b \u0431\u0443\u0434\u0443\u0442 \u0443\u0434\u0430\u043b\u0435\u043d\u044b \u0431\u0435\u0437 \u0432\u043e\u0437\u043c\u043e\u0436\u043d\u043e\u0441\u0442\u0438 \u0432\u043e\u0441\u0441\u0442\u0430\u043d\u043e\u0432\u043b\u0435\u043d\u0438\u044f.";
+    ui.confirmSubmitBtn.textContent = "\u0414\u0430, \u0443\u0434\u0430\u043b\u0438\u0442\u044c";
   } else {
-    ui.confirmTitle.textContent = state.meta.hasSubmitted
-      ? "Обновить отправленный ответ?"
-      : "Отправить форму?";
-    ui.confirmText.textContent = state.meta.hasSubmitted
-      ? "Мы сохраним ваши изменения и обновим существующую запись, а не создадим нового пользователя."
-      : "Ответ будет сохранён и привязан к этому устройству, поэтому позже его можно изменить и отправить заново.";
-    ui.confirmSubmitBtn.textContent = "Да, отправить";
+    ui.confirmTitle.textContent = state.meta.hasSubmitted ? "\u041e\u0431\u043d\u043e\u0432\u0438\u0442\u044c \u043e\u0442\u043f\u0440\u0430\u0432\u043b\u0435\u043d\u043d\u0443\u044e \u0444\u043e\u0440\u043c\u0443?" : "\u041f\u043e\u0434\u0442\u0432\u0435\u0440\u0434\u0438\u0442\u044c \u043e\u0442\u043f\u0440\u0430\u0432\u043a\u0443?";
+    ui.confirmText.textContent = state.meta.hasSubmitted ? "\u041c\u044b \u043f\u0435\u0440\u0435\u0437\u0430\u043f\u0438\u0448\u0435\u043c \u0432\u0430\u0448 \u043f\u0440\u0435\u0434\u044b\u0434\u0443\u0449\u0438\u0439 \u043e\u0442\u0432\u0435\u0442 \u0438 \u043e\u0431\u043d\u043e\u0432\u0438\u043c \u0432\u044b\u0431\u0440\u0430\u043d\u043d\u044b\u0435 \u043f\u0430\u0440\u0430\u043c\u0435\u0442\u0440\u044b \u0444\u043e\u0440\u043c\u044b." : "\u041f\u043e\u0441\u043b\u0435 \u043e\u0442\u043f\u0440\u0430\u0432\u043a\u0438 \u0432\u044b\u0431\u043e\u0440 \u0441\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u0441\u044f, \u0438 \u0435\u0433\u043e \u043c\u043e\u0436\u043d\u043e \u0431\u0443\u0434\u0435\u0442 \u0438\u0437\u043c\u0435\u043d\u0438\u0442\u044c \u043f\u043e\u0437\u0436\u0435.";
+    ui.confirmSubmitBtn.textContent = "\u0414\u0430, \u043e\u0442\u043f\u0440\u0430\u0432\u0438\u0442\u044c";
   }
 
   ui.confirmModal.classList.remove("hidden");
@@ -1711,72 +2439,50 @@ async function confirmModalAction() {
   closeConfirmModal();
 
   if (action === "reset-schema") {
-    localStorage.removeItem(CONFIG.storage.schemaKey);
+    localStorage.removeItem(getScopedStorageKey(CONFIG.storage.schemaKey));
     state.schema = getDefaultSchema();
     applySchemaChanges({ resetValues: true, rerenderBuilder: true });
     saveDraft();
-    ui.submitStatus.textContent = "Конструктор сброшен. Исходная форма восстановлена.";
+    ui.submitStatus.textContent = "\u0421\u0445\u0435\u043c\u0430 \u0444\u043e\u0440\u043c\u044b \u0441\u0431\u0440\u043e\u0448\u0435\u043d\u0430. \u0412\u0435\u0440\u043d\u0443\u043b\u0438 \u0432\u043e\u043f\u0440\u043e\u0441\u044b \u0438 \u043d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438 \u0438\u0437 config.js.";
     return;
   }
 
   if (action === "reset-all-data") {
-    ui.submitStatus.textContent = "Удаляем ответы пользователей...";
-
+    ui.submitStatus.textContent = "\u0423\u0434\u0430\u043b\u044f\u0435\u043c \u0432\u0441\u0435 \u043e\u0442\u0432\u0435\u0442\u044b...";
     try {
-      await FormApi.resetAllData(CONFIG, getAdminToken());
-      localStorage.removeItem(CONFIG.storage.draftKey);
-      localStorage.removeItem(CONFIG.storage.statsKey);
+      await FormApi.resetAllData(CONFIG, getBuilderBearerToken());
+      localStorage.removeItem(getScopedStorageKey(CONFIG.storage.draftKey));
+      localStorage.removeItem(getScopedStorageKey(CONFIG.storage.statsKey));
       resetFormState();
-      state.stats = {
-        responsesCount: 0,
-        optionCounts: {}
-      };
-
-      if (ui.name) {
-        ui.name.value = "";
-      }
-
-      if (ui.group) {
-        ui.group.value = "";
-      }
-
-      if (ui.dynamic) {
-        renderAll();
-        refreshUI(false);
-      } else {
-        renderBuilder();
-      }
+      state.stats = { responsesCount: 0, optionCounts: {} };
+      if (ui.name) ui.name.value = "";
+      if (ui.group) ui.group.value = "";
+      if (ui.dynamic) { renderAll(); refreshUI(false); } else { renderBuilder(); }
       saveDraft();
-      ui.submitStatus.textContent = "Все пользовательские ответы удалены локально и из базы данных.";
+      ui.submitStatus.textContent = "\u0412\u0441\u0435 \u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044c\u0441\u043a\u0438\u0435 \u043e\u0442\u0432\u0435\u0442\u044b \u0443\u0434\u0430\u043b\u0435\u043d\u044b.";
     } catch (error) {
       console.error(error);
-      ui.submitStatus.textContent = "Не удалось полностью удалить пользовательские данные. Проверьте авторизацию администратора.";
+      ui.submitStatus.textContent = "\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0443\u0434\u0430\u043b\u0438\u0442\u044c \u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044c\u0441\u043a\u0438\u0435 \u043e\u0442\u0432\u0435\u0442\u044b. \u041f\u0440\u043e\u0432\u0435\u0440\u044c\u0442\u0435 \u0430\u0432\u0442\u043e\u0440\u0438\u0437\u0430\u0446\u0438\u044e \u0438 \u043f\u043e\u043f\u0440\u043e\u0431\u0443\u0439\u0442\u0435 \u0435\u0449\u0435 \u0440\u0430\u0437.";
     }
-
     return;
   }
 
   state.isSubmitting = true;
-  ui.submitStatus.textContent = "Отправляем ответ...";
+  ui.submitStatus.textContent = "\u041e\u0442\u043f\u0440\u0430\u0432\u043b\u044f\u0435\u043c \u0444\u043e\u0440\u043c\u0443...";
   updateSubmitUi();
 
   try {
     const payload = buildSubmissionPayload();
     const result = await FormApi.submit(CONFIG, payload);
-
     state.meta.hasSubmitted = true;
     state.meta.lastSubmittedAt = payload.updatedAt;
     saveDraft();
-
     await loadStats();
     refreshUI(true);
-
-    ui.submitStatus.textContent = result.source === "remote"
-      ? "Форма сохранена в базу данных. Вы можете изменить ответ и отправить его повторно."
-      : "Форма сохранена только локально.";
+    ui.submitStatus.textContent = result.source === "remote" ? "\u0424\u043e\u0440\u043c\u0430 \u043e\u0442\u043f\u0440\u0430\u0432\u043b\u0435\u043d\u0430 \u0438 \u0441\u043e\u0445\u0440\u0430\u043d\u0435\u043d\u0430 \u0432 \u0431\u0430\u0437\u0435. \u0412\u044b \u0441\u043c\u043e\u0436\u0435\u0442\u0435 \u043e\u0431\u043d\u043e\u0432\u0438\u0442\u044c \u0435\u0435 \u043f\u043e\u0437\u0436\u0435." : "\u0424\u043e\u0440\u043c\u0430 \u043e\u0442\u043f\u0440\u0430\u0432\u043b\u0435\u043d\u0430 \u0442\u043e\u043b\u044c\u043a\u043e \u043b\u043e\u043a\u0430\u043b\u044c\u043d\u043e.";
   } catch (error) {
     console.error(error);
-    ui.submitStatus.textContent = "Не удалось отправить форму. Данные черновика сохранены, можно попробовать ещё раз.";
+    ui.submitStatus.textContent = "\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u043e\u0442\u043f\u0440\u0430\u0432\u0438\u0442\u044c \u0444\u043e\u0440\u043c\u0443. \u041f\u0440\u043e\u0432\u0435\u0440\u044c\u0442\u0435 \u043f\u043e\u0434\u043a\u043b\u044e\u0447\u0435\u043d\u0438\u0435 \u0438 \u043f\u043e\u043f\u0440\u043e\u0431\u0443\u0439\u0442\u0435 \u0435\u0449\u0435 \u0440\u0430\u0437.";
   } finally {
     state.isSubmitting = false;
     updateSubmitUi();
@@ -1813,6 +2519,9 @@ function applySchemaChanges({ resetValues = false, rerenderBuilder = false } = {
 
   saveSchema();
   saveUiConfig();
+  if (isBuilderPage()) {
+    setBuilderSaveIndicator("\u0421\u043e\u0445\u0440\u0430\u043d\u044f\u0435\u043c \u0438\u0437\u043c\u0435\u043d\u0435\u043d\u0438\u044f...", "saving");
+  }
   queueSchemaSync();
   if (!isBuilderPage()) {
     renderAll();
@@ -1830,7 +2539,7 @@ function applySchemaChanges({ resetValues = false, rerenderBuilder = false } = {
 function createFieldTemplate() {
   return {
     id: generateId("field"),
-    label: "Новое поле",
+    label: "\u041d\u043e\u0432\u044b\u0439 \u0432\u043e\u043f\u0440\u043e\u0441",
     hint: "",
     type: "single",
     required: false,
@@ -1839,6 +2548,18 @@ function createFieldTemplate() {
       createOptionTemplate()
     ]
   };
+}
+
+function cloneFieldForInsert(field) {
+  const cloned = deepClone(field);
+  cloned.id = generateId("field");
+  if (Array.isArray(cloned.options)) {
+    cloned.options = cloned.options.map(option => ({
+      ...option,
+      value: generateId("option")
+    }));
+  }
+  return cloned;
 }
 
 function insertFieldAt(index) {
@@ -1858,7 +2579,7 @@ function removeFieldAt(index) {
 function createOptionTemplate() {
   return {
     value: generateId("option"),
-    label: "Новый вариант",
+    label: "\u041d\u043e\u0432\u044b\u0439 \u0432\u0430\u0440\u0438\u0430\u043d\u0442",
     description: "",
     image: "",
     price: 0,
@@ -1879,9 +2600,9 @@ function moveItem(items, fromIndex, toIndex) {
   return true;
 }
 
-function createBuilderField(labelText, inputNode) {
+function createBuilderField(labelText, inputNode, className = "") {
   const wrapper = document.createElement("div");
-  wrapper.className = "builder-group";
+  wrapper.className = `builder-group${className ? ` ${className}` : ""}`;
 
   const label = document.createElement("label");
   label.textContent = text(labelText);
@@ -2024,10 +2745,10 @@ function createCheckbox(labelText, checked, handler) {
     handler(event.target.checked);
   });
 
-  const text = document.createElement("span");
-  text.textContent = labelText;
+  const textNode = document.createElement("span");
+  textNode.textContent = text(labelText);
 
-  wrapper.append(input, text);
+  wrapper.append(input, textNode);
   return wrapper;
 }
 
@@ -2062,25 +2783,28 @@ function updateScrollTopVisibility() {
 }
 
 function getFieldDisplayName(field) {
-  return text(field.label || "Без названия");
+  return text(field.label || "\u0411\u0435\u0437 \u043d\u0430\u0437\u0432\u0430\u043d\u0438\u044f");
 }
 
 function getOperatorChoices() {
   return [
-    { value: "equals", label: "равно" },
-    { value: "notEquals", label: "не равно" },
-    { value: "includes", label: "содержит" },
-    { value: "notIncludes", label: "не содержит" }
+    { value: "equals", label: "\u0420\u0430\u0432\u043d\u043e" },
+    { value: "notEquals", label: "\u041d\u0435 \u0440\u0430\u0432\u043d\u043e" },
+    { value: "includes", label: "\u0421\u043e\u0434\u0435\u0440\u0436\u0438\u0442" },
+    { value: "notIncludes", label: "\u041d\u0435 \u0441\u043e\u0434\u0435\u0440\u0436\u0438\u0442" }
   ];
 }
 
 function getDependencyTargets(currentFieldId) {
-  return getFields()
+  return [{
+    value: "",
+    label: "Не выбрано"
+  }].concat(getFields()
     .filter(field => field.id !== currentFieldId)
     .map(field => ({
       value: field.id,
       label: `${getFieldDisplayName(field)} (${field.id})`
-    }));
+    })));
 }
 
 function createDragHandle(title) {
@@ -2188,15 +2912,36 @@ function renderDependencyValueInput(currentField, rule) {
   return createSelectInput(rule.value || "", (targetField.options || []).map(option => ({
     value: option.value,
     label: option.label
-  })), value => {
+  })).reduce((items, option) => {
+    if (!items.length) {
+      items.push({ value: "", label: "Не выбрано" });
+    }
+    items.push(option);
+    return items;
+  }, []), value => {
     rule.value = value;
     applySchemaChanges();
   });
 }
 
+function createDependencyRule(field, targetField = null) {
+  return {
+    id: generateId("dep"),
+    fieldId: targetField?.id || "",
+    operator: targetField?.type === "multi" ? "includes" : "equals",
+    value: ""
+  };
+}
+
+function createDependencyGroup(field) {
+  return normalizeDependencyGroup({
+    joiner: "and",
+    rules: [createDependencyRule(field, null)]
+  });
+}
 function getDependencyRuleCount(field) {
   const visibility = normalizeDependencies(field.dependsOn);
-  return visibility.groups.reduce((sum, group) => sum + (group.rules?.length || 0), 0);
+  return visibility.groups.reduce((sum, group) => sum + (group.rules || []).filter(rule => cleanString(rule.fieldId || "")).length, 0);
 }
 
 function isDependenciesCollapsed(fieldId) {
@@ -2212,21 +2957,12 @@ function toggleDependenciesSection(fieldId) {
   renderBuilder();
 }
 
-function createDependencyRule(field, targetField) {
-  return {
-    id: generateId("dep"),
-    fieldId: targetField.id,
-    operator: targetField.type === "multi" ? "includes" : "equals",
-    value: targetField.type === "text" ? "" : (targetField.options?.[0]?.value || "")
-  };
-}
-
-function createDependencyGroup(field) {
-  const firstTarget = getFields().find(item => item.id !== field.id);
-  return normalizeDependencyGroup({
-    joiner: "and",
-    rules: firstTarget ? [createDependencyRule(field, firstTarget)] : []
-  });
+function ensureDependencyEditorGroup(field) {
+  field.dependsOn = normalizeDependencies(field.dependsOn);
+  if (!field.dependsOn.groups.length) {
+    field.dependsOn.groups.push(createDependencyGroup(field));
+  }
+  return field.dependsOn;
 }
 
 function renderDependencyGroupEditor(field, visibility, group, groupIndex) {
@@ -2236,9 +2972,9 @@ function renderDependencyGroupEditor(field, visibility, group, groupIndex) {
   const row = document.createElement("div");
   row.className = "builder-row builder-row-4";
   row.append(
-    createBuilderField("Условия внутри блока", createSelectInput(group.joiner || "and", [
-      { value: "and", label: "И" },
-      { value: "or", label: "ИЛИ" }
+    createBuilderField("\u0421\u0432\u044f\u0437\u044c \u043f\u0440\u0430\u0432\u0438\u043b \u0432 \u0433\u0440\u0443\u043f\u043f\u0435", createSelectInput(group.joiner || "and", [
+      { value: "and", label: "\u0418" },
+      { value: "or", label: "\u0418\u041b\u0418" }
     ], value => {
       group.joiner = value;
       applySchemaChanges({ resetValues: true, rerenderBuilder: true });
@@ -2248,7 +2984,7 @@ function renderDependencyGroupEditor(field, visibility, group, groupIndex) {
   const removeGroupBtn = document.createElement("button");
   removeGroupBtn.type = "button";
   removeGroupBtn.className = "button-secondary";
-  removeGroupBtn.textContent = "Удалить блок";
+  removeGroupBtn.textContent = "\u0423\u0434\u0430\u043b\u0438\u0442\u044c \u0433\u0440\u0443\u043f\u043f\u0443";
   removeGroupBtn.addEventListener("click", () => {
     visibility.groups.splice(groupIndex, 1);
     applySchemaChanges({ resetValues: true, rerenderBuilder: true });
@@ -2266,31 +3002,31 @@ function renderDependencyGroupEditor(field, visibility, group, groupIndex) {
     if (ruleIndex > 0) {
       const joinerBadge = document.createElement("div");
       joinerBadge.className = "dependency-joiner";
-      joinerBadge.textContent = group.joiner === "or" ? "ИЛИ" : "И";
+      joinerBadge.textContent = group.joiner === "or" ? "\u0418\u041b\u0418" : "\u0418";
       ruleCard.appendChild(joinerBadge);
     }
 
     const ruleRow = document.createElement("div");
     ruleRow.className = "builder-row builder-row-4";
     ruleRow.append(
-      createBuilderField("Вопрос", createSelectInput(rule.fieldId || "", getDependencyTargets(field.id), value => {
+      createBuilderField("\u041f\u043e\u043b\u0435", createSelectInput(rule.fieldId || "", getDependencyTargets(field.id), value => {
         rule.fieldId = value;
         const target = getFields().find(item => item.id === value);
         rule.operator = target?.type === "multi" ? "includes" : "equals";
-        rule.value = target?.type === "text" ? "" : (target?.options?.[0]?.value || "");
+        rule.value = "";
         applySchemaChanges({ resetValues: true, rerenderBuilder: true });
       })),
-      createBuilderField("Условие", createSelectInput(rule.operator || "equals", getOperatorChoices(), value => {
+      createBuilderField("\u0423\u0441\u043b\u043e\u0432\u0438\u0435", createSelectInput(rule.operator || "equals", getOperatorChoices(), value => {
         rule.operator = value;
         applySchemaChanges({ resetValues: true });
       })),
-      createBuilderField("Значение", renderDependencyValueInput(field, rule))
+      createBuilderField("\u0417\u043d\u0430\u0447\u0435\u043d\u0438\u0435", renderDependencyValueInput(field, rule))
     );
 
     const removeRuleBtn = document.createElement("button");
     removeRuleBtn.type = "button";
     removeRuleBtn.className = "button-secondary";
-    removeRuleBtn.textContent = "Удалить";
+    removeRuleBtn.textContent = "\u0423\u0434\u0430\u043b\u0438\u0442\u044c";
     removeRuleBtn.addEventListener("click", () => {
       group.rules.splice(ruleIndex, 1);
       applySchemaChanges({ resetValues: true, rerenderBuilder: true });
@@ -2304,15 +3040,15 @@ function renderDependencyGroupEditor(field, visibility, group, groupIndex) {
 
   const addRuleBtn = document.createElement("button");
   addRuleBtn.type = "button";
-  addRuleBtn.textContent = "Добавить условие";
+  addRuleBtn.textContent = "+";
+  addRuleBtn.title = "\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u043f\u0440\u0430\u0432\u0438\u043b\u043e";
+  addRuleBtn.setAttribute("aria-label", "\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u043f\u0440\u0430\u0432\u0438\u043b\u043e");
   addRuleBtn.disabled = getDependencyTargets(field.id).length === 0;
   addRuleBtn.addEventListener("click", () => {
-    const firstTarget = getFields().find(item => item.id !== field.id);
-    if (!firstTarget) {
+    if (!getFields().find(item => item.id !== field.id)) {
       return;
     }
-
-    group.rules.push(createDependencyRule(field, firstTarget));
+    group.rules.push(createDependencyRule(field, null));
     applySchemaChanges({ resetValues: true, rerenderBuilder: true });
   });
   groupCard.appendChild(addRuleBtn);
@@ -2326,23 +3062,22 @@ function renderDependenciesSection(field) {
 
   const title = document.createElement("div");
   title.className = "builder-section-title";
-  title.textContent = "Условия показа вопроса";
+  title.textContent = "\u0417\u0430\u0432\u0438\u0441\u0438\u043c\u043e\u0441\u0442\u0438 \u0438 \u0432\u0438\u0434\u0438\u043c\u043e\u0441\u0442\u044c";
   section.appendChild(title);
 
   const note = document.createElement("p");
   note.className = "field-hint";
-  note.textContent = "Настройте, когда этот вопрос должен показываться. Можно ссылаться на любой другой вопрос и комбинировать условия через И / ИЛИ.";
+  note.textContent = "\u041d\u0430\u0441\u0442\u0440\u043e\u0439\u0442\u0435, \u043a\u043e\u0433\u0434\u0430 \u044d\u0442\u043e \u043f\u043e\u043b\u0435 \u043f\u043e\u043a\u0430\u0437\u044b\u0432\u0430\u0435\u0442\u0441\u044f \u0438\u043b\u0438 \u0441\u043a\u0440\u044b\u0432\u0430\u0435\u0442\u0441\u044f. \u041c\u043e\u0436\u043d\u043e \u0441\u043e\u0431\u0440\u0430\u0442\u044c \u043d\u0435\u0441\u043a\u043e\u043b\u044c\u043a\u043e \u0433\u0440\u0443\u043f\u043f \u0443\u0441\u043b\u043e\u0432\u0438\u0439 \u0438 \u043e\u0431\u044a\u0435\u0434\u0438\u043d\u044f\u0442\u044c \u0438\u0445 \u0447\u0435\u0440\u0435\u0437 \u0418 / \u0418\u041b\u0418.";
   section.appendChild(note);
 
-  field.dependsOn = normalizeDependencies(field.dependsOn);
-  const visibility = field.dependsOn;
+  const visibility = ensureDependencyEditorGroup(field);
 
   const topRow = document.createElement("div");
-  topRow.className = "builder-row builder-row-4";
+  topRow.className = "builder-row builder-row-4 builder-row-dependencies";
   topRow.append(
-    createBuilderField("Связь между блоками", createSelectInput(visibility.joiner || "and", [
-      { value: "and", label: "И" },
-      { value: "or", label: "ИЛИ" }
+    createBuilderField("\u0421\u0432\u044f\u0437\u044c \u043c\u0435\u0436\u0434\u0443 \u0433\u0440\u0443\u043f\u043f\u0430\u043c\u0438", createSelectInput(visibility.joiner || "and", [
+      { value: "and", label: "\u0418" },
+      { value: "or", label: "\u0418\u041b\u0418" }
     ], value => {
       visibility.joiner = value;
       applySchemaChanges({ resetValues: true, rerenderBuilder: true });
@@ -2351,11 +3086,11 @@ function renderDependenciesSection(field) {
 
   const clearBtn = document.createElement("button");
   clearBtn.type = "button";
-  clearBtn.className = "button-secondary";
-  clearBtn.textContent = "Удалить все";
-  clearBtn.disabled = !visibility.groups.length;
+  clearBtn.className = "button-secondary builder-clear-btn";
+  clearBtn.textContent = "\u041e\u0447\u0438\u0441\u0442\u0438\u0442\u044c \u0432\u0441\u0435";
   clearBtn.addEventListener("click", () => {
     field.dependsOn = normalizeDependencies();
+    ensureDependencyEditorGroup(field);
     applySchemaChanges({ resetValues: true, rerenderBuilder: true });
   });
   topRow.append(clearBtn);
@@ -2367,7 +3102,7 @@ function renderDependenciesSection(field) {
     if (groupIndex > 0) {
       const groupJoiner = document.createElement("div");
       groupJoiner.className = "dependency-joiner dependency-joiner-block";
-      groupJoiner.textContent = visibility.joiner === "or" ? "ИЛИ" : "И";
+      groupJoiner.textContent = visibility.joiner === "or" ? "\u0418\u041b\u0418" : "\u0418";
       groupsList.appendChild(groupJoiner);
     }
 
@@ -2377,7 +3112,9 @@ function renderDependenciesSection(field) {
 
   const addGroupBtn = document.createElement("button");
   addGroupBtn.type = "button";
-  addGroupBtn.textContent = "Добавить блок условий";
+  addGroupBtn.textContent = "+";
+  addGroupBtn.title = "\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u0433\u0440\u0443\u043f\u043f\u0443 \u0443\u0441\u043b\u043e\u0432\u0438\u0439";
+  addGroupBtn.setAttribute("aria-label", "\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u0433\u0440\u0443\u043f\u043f\u0443 \u0443\u0441\u043b\u043e\u0432\u0438\u0439");
   addGroupBtn.disabled = getDependencyTargets(field.id).length === 0;
   addGroupBtn.addEventListener("click", () => {
     visibility.groups.push(createDependencyGroup(field));
@@ -2393,9 +3130,9 @@ function renderOptionEditor(option, options, optionIndex, field) {
   card.className = "builder-item builder-child builder-item-compact";
 
   const { header, handle, title, meta } = createBuilderHeader(
-    option.label || `Вариант ${optionIndex + 1}`,
-    `Значение: ${option.value || "без значения"}`,
-    "Перетащить вариант"
+    option.label || `\u0412\u0430\u0440\u0438\u0430\u043d\u0442 ${optionIndex + 1}`,
+    `\u0417\u043d\u0430\u0447\u0435\u043d\u0438\u0435: ${option.value || "\u043d\u0435 \u0437\u0430\u0434\u0430\u043d\u043e"}`,
+    "\u041f\u0435\u0440\u0435\u0442\u0430\u0449\u0438\u0442\u044c \u0432\u0430\u0440\u0438\u0430\u043d\u0442"
   );
   card.appendChild(header);
   attachSortable(card, handle, options, optionIndex, "option", field.id);
@@ -2403,20 +3140,20 @@ function renderOptionEditor(option, options, optionIndex, field) {
   const row1 = document.createElement("div");
   row1.className = "builder-row builder-row-3";
   row1.append(
-    createBuilderField("Значение", createCommittedTextInput(option.value || "", value => {
+    createBuilderField("\u0417\u043d\u0430\u0447\u0435\u043d\u0438\u0435", createCommittedTextInput(option.value || "", value => {
       option.value = value;
-      meta.textContent = `Значение: ${option.value || "без значения"}`;
+      meta.textContent = `\u0417\u043d\u0430\u0447\u0435\u043d\u0438\u0435: ${option.value || "\u043d\u0435 \u0437\u0430\u0434\u0430\u043d\u043e"}`;
     }, value => {
       option.value = value;
-      meta.textContent = `Значение: ${option.value || "без значения"}`;
+      meta.textContent = `\u0417\u043d\u0430\u0447\u0435\u043d\u0438\u0435: ${option.value || "\u043d\u0435 \u0437\u0430\u0434\u0430\u043d\u043e"}`;
       applySchemaChanges({ resetValues: true, rerenderBuilder: true });
     })),
-    createBuilderField("Название", createTextInput(option.label || "", value => {
+    createBuilderField("\u041d\u0430\u0437\u0432\u0430\u043d\u0438\u0435", createTextInput(option.label || "", value => {
       option.label = value;
-      title.textContent = text(option.label || `Вариант ${optionIndex + 1}`);
+      title.textContent = text(option.label || `\u0412\u0430\u0440\u0438\u0430\u043d\u0442 ${optionIndex + 1}`);
       applySchemaChanges();
     })),
-    createBuilderField("Описание", createTextInput(option.description || "", value => {
+    createBuilderField("\u041e\u043f\u0438\u0441\u0430\u043d\u0438\u0435", createTextInput(option.description || "", value => {
       option.description = value;
       applySchemaChanges();
     }))
@@ -2426,22 +3163,22 @@ function renderOptionEditor(option, options, optionIndex, field) {
   const row2 = document.createElement("div");
   row2.className = "builder-row builder-row-4";
   row2.append(
-    createBuilderField("Изображение / URL", createTextInput(option.image || "", value => {
+    createBuilderField("\u0424\u043e\u0442\u043e / URL", createTextInput(option.image || "", value => {
       option.image = value;
       applySchemaChanges();
     })),
-    createBuilderField("Цена", createTextInput(option.price || 0, value => {
+    createBuilderField("\u0426\u0435\u043d\u0430", createTextInput(option.price || 0, value => {
       option.price = Number(value) || 0;
       applySchemaChanges();
     }, "number")),
-    createBuilderField("Тип цены", createSelectInput(option.priceType || "fixed", [
-      { value: "fixed", label: "Фиксированная" },
-      { value: "perPerson", label: "За человека" }
+    createBuilderField("\u0422\u0438\u043f \u0446\u0435\u043d\u044b", createSelectInput(option.priceType || "fixed", [
+      { value: "fixed", label: "\u0424\u0438\u043a\u0441\u0438\u0440\u043e\u0432\u0430\u043d\u043d\u0430\u044f" },
+      { value: "perPerson", label: "\u041d\u0430 \u0447\u0435\u043b\u043e\u0432\u0435\u043a" }
     ], value => {
       option.priceType = value;
       applySchemaChanges();
     })),
-    createBuilderField("Промо-текст", createTextInput(option.promoText || "", value => {
+    createBuilderField("\u041f\u0440\u043e\u043c\u043e-\u0442\u0435\u043a\u0441\u0442", createTextInput(option.promoText || "", value => {
       option.promoText = value;
       applySchemaChanges();
     }))
@@ -2449,318 +3186,36 @@ function renderOptionEditor(option, options, optionIndex, field) {
   card.appendChild(row2);
 
   const row3 = document.createElement("div");
-  row3.className = "builder-row";
+  row3.className = "builder-row builder-row-3";
   row3.append(
-    createBuilderField("Подробнее", createTextarea(option.details || "", value => {
-      option.details = value;
-      applySchemaChanges();
-    })),
-    createBuilderField("Ссылка на карту", createTextInput(option.mapUrl || "", value => {
-      option.mapUrl = value;
-      applySchemaChanges();
-    }))
-  );
-  card.appendChild(row3);
-
-  const switches = document.createElement("div");
-  switches.className = "builder-switches";
-  switches.append(
-    createCheckbox("Выбран по умолчанию", option.defaultSelected, checked => {
-      option.defaultSelected = checked;
-      applySchemaChanges({ resetValues: true, rerenderBuilder: true });
-    }),
-    createCheckbox("Нельзя отключить", option.locked, checked => {
-      option.locked = checked;
-      applySchemaChanges({ resetValues: true, rerenderBuilder: true });
-    })
-  );
-  card.appendChild(switches);
-
-  const actions = document.createElement("div");
-  actions.className = "builder-inline-actions";
-
-  const removeOptionBtn = document.createElement("button");
-  removeOptionBtn.type = "button";
-  removeOptionBtn.className = "button-secondary";
-  removeOptionBtn.textContent = "Удалить вариант";
-  removeOptionBtn.addEventListener("click", () => {
-    options.splice(optionIndex, 1);
-    applySchemaChanges({ resetValues: true, rerenderBuilder: true });
-  });
-
-  actions.append(removeOptionBtn);
-  card.appendChild(actions);
-
-  return card;
-}
-
-function renderFieldEditor(field, siblings, index) {
-  const card = document.createElement("section");
-  card.className = "builder-item";
-  card.id = `builder-field-${field.id}`;
-
-  const insertTopBtn = document.createElement("button");
-  insertTopBtn.type = "button";
-  insertTopBtn.className = "builder-insert-btn builder-insert-top";
-  insertTopBtn.textContent = "+";
-  insertTopBtn.title = "Добавить вопрос сверху";
-  insertTopBtn.addEventListener("click", () => insertFieldAt(index));
-  card.appendChild(insertTopBtn);
-
-  const insertBottomBtn = document.createElement("button");
-  insertBottomBtn.type = "button";
-  insertBottomBtn.className = "builder-insert-btn builder-insert-bottom";
-  insertBottomBtn.textContent = "+";
-  insertBottomBtn.title = "Добавить вопрос снизу";
-  insertBottomBtn.addEventListener("click", () => insertFieldAt(index + 1));
-  card.appendChild(insertBottomBtn);
-
-  const { header, handle, actions: headerActions, title, meta } = createBuilderHeader(
-    field.label || "Новое поле",
-    `Поле ${index + 1} • ID: ${field.id || "без id"}`,
-    "Перетащить вопрос"
-  );
-  const dependenciesBtn = document.createElement("button");
-  dependenciesBtn.type = "button";
-  dependenciesBtn.className = "button-secondary builder-dependency-toggle";
-  dependenciesBtn.textContent = isDependenciesCollapsed(field.id)
-    ? `Показать зависимости (${getDependencyRuleCount(field)})`
-    : `Скрыть зависимости (${getDependencyRuleCount(field)})`;
-  dependenciesBtn.addEventListener("click", () => toggleDependenciesSection(field.id));
-  headerActions.insertBefore(dependenciesBtn, handle);
-
-  card.appendChild(header);
-  attachSortable(card, handle, siblings, index, "field");
-
-  const row1 = document.createElement("div");
-  row1.className = "builder-row";
-  row1.append(
-    createBuilderField("ID поля", createCommittedTextInput(field.id || "", value => {
-      field.id = value;
-      meta.textContent = `Поле ${index + 1} • ID: ${field.id || "без id"}`;
-    }, value => {
-      field.id = value || generateId("field");
-      meta.textContent = `Поле ${index + 1} • ID: ${field.id || "без id"}`;
-      applySchemaChanges({ resetValues: true, rerenderBuilder: true });
-    })),
-    createBuilderField("Название вопроса", createTextInput(field.label || "", value => {
-      field.label = value;
-      title.textContent = text(field.label || "Новое поле");
-      renderBuilderOutline();
-      applySchemaChanges();
-    }))
-  );
-  card.appendChild(row1);
-
-  const row2 = document.createElement("div");
-  row2.className = "builder-row builder-row-3";
-  row2.append(
-    createBuilderField("Тип", createSelectInput(field.type || "single", [
-      { value: "text", label: "Текст" },
-      { value: "single", label: "Один вариант" },
-      { value: "multi", label: "Несколько вариантов" }
-    ], value => {
-      field.type = value;
-      if (value === "text") {
-        delete field.options;
-        delete field.appearance;
-      } else if (!Array.isArray(field.options) || !field.options.length) {
-        field.options = [createOptionTemplate()];
-      }
-      applySchemaChanges({ resetValues: true, rerenderBuilder: true });
-    })),
-    createBuilderField("Вид", createSelectInput(field.appearance || "", [
-      { value: "", label: "Стандартный" },
-      { value: "media-grid", label: "Карточки с изображением" },
-      { value: "media-carousel", label: "Карусель с изображениями" }
-    ], value => {
-      field.appearance = value || undefined;
-      applySchemaChanges({ rerenderBuilder: true });
-    })),
-    createBuilderField("Подсказка", createTextInput(field.hint || "", value => {
-      field.hint = value;
-      applySchemaChanges();
-    }))
-  );
-  card.appendChild(row2);
-
-  const promoRow = document.createElement("div");
-  promoRow.className = "builder-row";
-  promoRow.append(
-    createBuilderField("Плашка над вопросом", createTextInput(field.promoTag || "", value => {
-      field.promoTag = value;
-      applySchemaChanges();
-    })),
-    createBuilderField("Промо-заголовок блока", createTextarea(field.promoTitle || "", value => {
-      field.promoTitle = value;
-      applySchemaChanges();
-    }))
-  );
-  card.appendChild(promoRow);
-
-  const promoSubRow = document.createElement("div");
-  promoSubRow.className = "builder-row";
-  promoSubRow.append(
-    createBuilderField("Промо-подзаголовок блока", createTextarea(field.promoSubtitle || "", value => {
-      field.promoSubtitle = value;
-      applySchemaChanges();
-    }))
-  );
-  card.appendChild(promoSubRow);
-
-  const switches = document.createElement("div");
-  switches.className = "builder-switches";
-  switches.append(
-    createCheckbox("Обязательное поле", field.required, checked => {
-      field.required = checked;
-      applySchemaChanges();
-    })
-  );
-  card.appendChild(switches);
-
-  const actions = document.createElement("div");
-  actions.className = "builder-inline-actions";
-
-  const removeBtn = document.createElement("button");
-  removeBtn.type = "button";
-  removeBtn.className = "button-secondary";
-  removeBtn.textContent = "Удалить вопрос";
-  removeBtn.addEventListener("click", () => {
-    removeFieldAt(index);
-  });
-
-  actions.append(removeBtn);
-  card.appendChild(actions);
-  if (!isDependenciesCollapsed(field.id)) {
-    card.appendChild(renderDependenciesSection(field));
-  }
-
-  if (field.type !== "text") {
-    const optionsTitle = document.createElement("div");
-    optionsTitle.className = "builder-section-title";
-    optionsTitle.textContent = "Варианты ответа";
-    card.appendChild(optionsTitle);
-
-    const optionList = document.createElement("div");
-    optionList.className = "builder-list";
-    (field.options || []).forEach((option, optionIndex) => {
-      optionList.appendChild(renderOptionEditor(option, field.options, optionIndex, field));
-    });
-    card.appendChild(optionList);
-
-    const addOptionBtn = document.createElement("button");
-    addOptionBtn.type = "button";
-    addOptionBtn.textContent = "Добавить вариант";
-    addOptionBtn.addEventListener("click", () => {
-      field.options = field.options || [];
-      field.options.push(createOptionTemplate());
-      applySchemaChanges({ resetValues: true, rerenderBuilder: true });
-    });
-    card.appendChild(addOptionBtn);
-  }
-
-  return card;
-}
-
-function renderUiConfigEditor() {
-  const card = document.createElement("section");
-  card.className = "builder-item builder-editor-card builder-settings-card";
-  card.id = "builder-section-ui";
-
-  const title = document.createElement("h4");
-  title.className = "builder-section-title";
-  title.textContent = "Верх формы и пользовательские поля";
-  card.appendChild(title);
-
-  const intro = document.createElement("p");
-  intro.className = "field-hint builder-editor-note";
-  intro.textContent = "Редактируйте тексты по блокам: hero, подписи интерфейса и пользовательские поля.";
-  card.appendChild(intro);
-
-  const sections = document.createElement("div");
-  sections.className = "builder-panel-sections";
-
-  const row1 = document.createElement("div");
-  row1.className = "builder-row";
-  row1.append(
-    createBuilderField("Заголовок страницы", createTextInput(state.uiConfig.pageTitle || "", value => {
-      state.uiConfig.pageTitle = value;
-      applySchemaChanges();
-    })),
-    createBuilderField("Подзаголовок блока пользователя", createTextInput(state.uiConfig.userSectionTitle || "", value => {
-      state.uiConfig.userSectionTitle = value;
-      applySchemaChanges();
-    }))
-  );
-
-  const heroRow = document.createElement("div");
-  heroRow.className = "builder-row";
-  heroRow.append(
-    createBuilderField("Hero: плашка", createTextInput(state.uiConfig.heroKicker || "", value => {
-      state.uiConfig.heroKicker = value;
-      applySchemaChanges();
-    })),
-    createBuilderField("Hero: бейдж", createTextInput(state.uiConfig.heroBadge || "", value => {
-      state.uiConfig.heroBadge = value;
-      applySchemaChanges();
-    }))
-  );
-
-  const heroTextRow = document.createElement("div");
-  heroTextRow.className = "builder-row";
-  heroTextRow.append(
-    createBuilderField("Hero: главный заголовок", createTextarea(state.uiConfig.heroHeadline || "", value => {
-      state.uiConfig.heroHeadline = value;
-      applySchemaChanges();
-    })),
-    createBuilderField("Hero: подпись справа", createTextarea(state.uiConfig.heroNote || "", value => {
-      state.uiConfig.heroNote = value;
-      applySchemaChanges();
-    }))
-  );
-
-  const row2 = document.createElement("div");
-  row2.className = "builder-row";
-  row2.append(
-    createBuilderField("Hero: подзаголовок", createTextarea(state.uiConfig.heroSubline || "", value => {
-      state.uiConfig.heroSubline = value;
-      applySchemaChanges();
-    })),
-    createBuilderField("Подсказка к данным пользователя", createTextarea(state.uiConfig.userSectionHint || "", value => {
-      state.uiConfig.userSectionHint = value;
-      applySchemaChanges();
-    }))
-  );
-
-  const row2b = document.createElement("div");
-  row2b.className = "builder-row builder-row-single";
-  row2b.append(
-    createBuilderField("Текст под ценой", createTextarea(state.uiConfig.draftStatusText || "", value => {
-      state.uiConfig.draftStatusText = value;
-      applySchemaChanges();
-    }))
-  );
-
-  const row3 = document.createElement("div");
-  row3.className = "builder-row builder-row-4";
-  row3.append(
-    createBuilderField("Плейсхолдер ФИО", createTextInput(state.uiConfig.namePlaceholder || "", value => {
+    createBuilderField("\u041f\u043b\u0435\u0439\u0441\u0445\u043e\u043b\u0434\u0435\u0440 \u0438\u043c\u0435\u043d\u0438", createTextInput(state.uiConfig.namePlaceholder || "", value => {
       state.uiConfig.namePlaceholder = value;
       applySchemaChanges();
     })),
-    createBuilderField("Плейсхолдер группы", createTextInput(state.uiConfig.groupPlaceholder || "", value => {
+    createBuilderField("\u041f\u043b\u0435\u0439\u0441\u0445\u043e\u043b\u0434\u0435\u0440 \u0433\u0440\u0443\u043f\u043f\u044b", createTextInput(state.uiConfig.groupPlaceholder || "", value => {
       state.uiConfig.groupPlaceholder = value;
       applySchemaChanges();
     })),
-    createBuilderField("Подпись Билет", createTextInput(state.uiConfig.ticketLabel || "", value => {
+    createBuilderField("\u041f\u043e\u0434\u043f\u0438\u0441\u044c \u0446\u0435\u043d\u044b", createTextInput(state.uiConfig.ticketLabel || "", value => {
       state.uiConfig.ticketLabel = value;
       applySchemaChanges();
-    })),
-    createBuilderField("Количество участников", createTextInput(state.uiConfig.participantsCount || getParticipantCount(), value => {
-      state.uiConfig.participantsCount = Math.max(1, Number(value) || CONFIG.participants);
+    }))
+  );
+
+  const participantsRow = document.createElement("div");
+  participantsRow.className = "builder-row builder-row-2";
+  participantsRow.append(
+    createBuilderField("\u0423\u0447\u0430\u0441\u0442\u043d\u0438\u043a\u043e\u0432 \u043d\u0430 \u0441\u0430\u0439\u0442\u0435", createTextInput(state.uiConfig.displayParticipantsCount || getDisplayParticipantCount(), value => {
+      state.uiConfig.displayParticipantsCount = Math.max(1, Number(value) || CONFIG.participants);
       if (ui.participantsCount) {
-        ui.participantsCount.textContent = getParticipantCount();
+        ui.participantsCount.textContent = getDisplayParticipantCount();
       }
+      applySchemaChanges();
+    }, "number")),
+    createBuilderField("\u0423\u0447\u0430\u0441\u0442\u043d\u0438\u043a\u043e\u0432 \u0434\u043b\u044f \u0446\u0435\u043d\u044b", createTextInput(state.uiConfig.pricingParticipantsCount || state.uiConfig.participantsCount || getPricingParticipantCount(), value => {
+      const normalized = Math.max(1, Number(value) || CONFIG.participants);
+      state.uiConfig.pricingParticipantsCount = normalized;
+      state.uiConfig.participantsCount = normalized;
       applySchemaChanges();
     }, "number"))
   );
@@ -2768,15 +3223,15 @@ function renderUiConfigEditor() {
   const row4 = document.createElement("div");
   row4.className = "builder-row builder-row-3";
   row4.append(
-    createBuilderField("Счётчик участников", createTextInput(state.uiConfig.participantsStatLabel || "", value => {
+    createBuilderField("\u0421\u0447\u0435\u0442\u0447\u0438\u043a \u0443\u0447\u0430\u0441\u0442\u043d\u0438\u043a\u043e\u0432", createTextInput(state.uiConfig.participantsStatLabel || "", value => {
       state.uiConfig.participantsStatLabel = value;
       applySchemaChanges();
     })),
-    createBuilderField("Счётчик заполнений", createTextInput(state.uiConfig.responsesStatLabel || "", value => {
+    createBuilderField("\u0421\u0447\u0435\u0442\u0447\u0438\u043a \u043e\u0442\u0432\u0435\u0442\u043e\u0432", createTextInput(state.uiConfig.responsesStatLabel || "", value => {
       state.uiConfig.responsesStatLabel = value;
       applySchemaChanges();
     })),
-    createBuilderField("Кнопка итогов", createTextInput(state.uiConfig.detailsButtonLabel || "", value => {
+    createBuilderField("\u041a\u043d\u043e\u043f\u043a\u0430 \u043f\u043e\u0434\u0440\u043e\u0431\u043d\u0435\u0435", createTextInput(state.uiConfig.detailsButtonLabel || "", value => {
       state.uiConfig.detailsButtonLabel = value;
       applySchemaChanges();
     }))
@@ -2785,23 +3240,471 @@ function renderUiConfigEditor() {
   const row5 = document.createElement("div");
   row5.className = "builder-row";
   row5.append(
-    createBuilderField("Кнопка отправки", createTextInput(state.uiConfig.saveButtonLabel || "", value => {
+    createBuilderField("\u041a\u043d\u043e\u043f\u043a\u0430 \u043e\u0442\u043f\u0440\u0430\u0432\u043a\u0438", createTextInput(state.uiConfig.saveButtonLabel || "", value => {
       state.uiConfig.saveButtonLabel = value;
       applySchemaChanges();
     })),
-    createBuilderField("Кнопка повторной отправки", createTextInput(state.uiConfig.resubmitButtonLabel || "", value => {
+    createBuilderField("\u041a\u043d\u043e\u043f\u043a\u0430 \u043f\u043e\u0432\u0442\u043e\u0440\u043d\u043e\u0439 \u043e\u0442\u043f\u0440\u0430\u0432\u043a\u0438", createTextInput(state.uiConfig.resubmitButtonLabel || "", value => {
       state.uiConfig.resubmitButtonLabel = value;
       applySchemaChanges();
     }))
   );
 
   sections.append(
-    createBuilderPanelSection("Hero и верх формы", "Крупные тексты и первый экран формы.", row1, heroRow, heroTextRow, row2),
-    createBuilderPanelSection("Подписи и действия", "Кнопки, подписи счетчиков и текст под итогом.", row2b, row4, row5),
-    createBuilderPanelSection("Поля пользователя", "Плейсхолдеры и число участников.", row3)
+    createBuilderPanelSection("Hero \u0438 \u0432\u0435\u0440\u0445 \u0444\u043e\u0440\u043c\u044b", "\u0417\u0434\u0435\u0441\u044c \u043d\u0430\u0441\u0442\u0440\u0430\u0438\u0432\u0430\u0435\u0442\u0441\u044f \u043f\u0435\u0440\u0432\u044b\u0439 \u044d\u043a\u0440\u0430\u043d \u0444\u043e\u0440\u043c\u044b \u0438 hero-\u0431\u043b\u043e\u043a.", row1, heroRow, heroTextRow, row2),
+    createBuilderPanelSection("\u041f\u043e\u0434\u043f\u0438\u0441\u0438 \u0438 \u043a\u043d\u043e\u043f\u043a\u0438", "\u041f\u043e\u0434\u043f\u0438\u0441\u0438, \u043a\u043d\u043e\u043f\u043a\u0438 \u0438 \u0441\u043b\u0443\u0436\u0435\u0431\u043d\u044b\u0435 \u0442\u0435\u043a\u0441\u0442\u044b \u0432 \u043d\u0438\u0436\u043d\u0435\u0439 \u0447\u0430\u0441\u0442\u0438 \u0444\u043e\u0440\u043c\u044b.", row2b, row4, row5),
+    createBuilderPanelSection("\u041f\u043e\u043b\u044f \u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044f", "\u041f\u043b\u0435\u0439\u0441\u0445\u043e\u043b\u0434\u0435\u0440\u044b \u0438 \u0441\u0447\u0435\u0442\u0447\u0438\u043a\u0438 \u0434\u043b\u044f \u0438\u043c\u0435\u043d\u0438, \u0433\u0440\u0443\u043f\u043f\u044b \u0438 \u0441\u043e\u0441\u0442\u0430\u0432\u0430.", row3, participantsRow)
   );
   card.appendChild(sections);
 
+  return card;
+}
+
+function renderOptionEditor(option, options, optionIndex, field) {
+  const card = document.createElement("div");
+  card.className = "builder-item builder-child builder-item-compact";
+
+  const { header, handle, title, meta } = createBuilderHeader(
+    option.label || `\u0412\u0430\u0440\u0438\u0430\u043d\u0442 ${optionIndex + 1}`,
+    `\u0417\u043d\u0430\u0447\u0435\u043d\u0438\u0435: ${option.value || "\u043d\u0435 \u0437\u0430\u0434\u0430\u043d\u043e"}`,
+    "\u041f\u0435\u0440\u0435\u0442\u0430\u0449\u0438\u0442\u044c \u0432\u0430\u0440\u0438\u0430\u043d\u0442"
+  );
+  card.appendChild(header);
+  attachSortable(card, handle, options, optionIndex, "option", field.id);
+
+  const row1 = document.createElement("div");
+  row1.className = "builder-row builder-row-single";
+  row1.append(
+    createBuilderField("\u041d\u0430\u0437\u0432\u0430\u043d\u0438\u0435", createTextInput(option.label || "", value => {
+      option.label = value;
+      title.textContent = text(option.label || `\u0412\u0430\u0440\u0438\u0430\u043d\u0442 ${optionIndex + 1}`);
+      applySchemaChanges();
+    })),
+    createBuilderField("\u041e\u043f\u0438\u0441\u0430\u043d\u0438\u0435", createTextarea(option.description || "", value => {
+      option.description = value;
+      applySchemaChanges();
+    }))
+  );
+  card.appendChild(row1);
+
+  const row2 = document.createElement("div");
+  row2.className = "builder-row builder-row-option-meta";
+  const optionValueInput = createCommittedTextInput(option.value || "", value => {
+    option.value = value;
+    meta.textContent = `\u0417\u043d\u0430\u0447\u0435\u043d\u0438\u0435: ${option.value || "\u043d\u0435 \u0437\u0430\u0434\u0430\u043d\u043e"}`;
+  }, value => {
+    option.value = value;
+    meta.textContent = `\u0417\u043d\u0430\u0447\u0435\u043d\u0438\u0435: ${option.value || "\u043d\u0435 \u0437\u0430\u0434\u0430\u043d\u043e"}`;
+    applySchemaChanges({ resetValues: true, rerenderBuilder: true });
+  }, "text");
+  optionValueInput.disabled = true;
+  row2.append(
+    createBuilderField("\u0417\u043d\u0430\u0447\u0435\u043d\u0438\u0435", optionValueInput, "builder-group-compact"),
+    createBuilderField("\u0424\u043e\u0442\u043e", createTextInput(option.image || "", value => {
+      option.image = value;
+      applySchemaChanges();
+    }), "builder-group-compact"),
+    createBuilderField("\u041b\u043e\u043a\u0430\u0446\u0438\u044f", createTextInput(option.mapUrl || "", value => {
+      option.mapUrl = value;
+      applySchemaChanges();
+    }), "builder-group-compact"),
+    createBuilderField("\u0426\u0435\u043d\u0430", createTextInput(option.price || 0, value => {
+      option.price = Number(value) || 0;
+      applySchemaChanges();
+    }, "number"), "builder-group-compact"),
+    createBuilderField("\u0422\u0438\u043f \u0446\u0435\u043d\u044b", createSelectInput(option.priceType || "fixed", [
+      { value: "fixed", label: "\u0424\u0438\u043a\u0441\u0438\u0440." },
+      { value: "perPerson", label: "\u041d\u0430 \u0447\u0435\u043b." }
+    ], value => {
+      option.priceType = value;
+      applySchemaChanges();
+    }), "builder-group-compact"),
+    createBuilderField("\u041f\u0440\u043e\u043c\u043e", createTextInput(option.promoText || "", value => {
+      option.promoText = value;
+      applySchemaChanges();
+    }), "builder-group-compact")
+  );
+  card.appendChild(row2);
+
+  const row3 = document.createElement("div");
+  row3.className = "builder-row builder-row-2";
+  row3.append(
+    createBuilderField("\u041f\u043e\u0434\u0440\u043e\u0431\u043d\u0435\u0435", createTextarea(option.details || "", value => {
+      option.details = value;
+      applySchemaChanges();
+    })),
+    createBuilderField("\u0421\u043b\u0443\u0436\u0435\u0431\u043d\u044b\u0435 \u0444\u043b\u0430\u0433\u0438", (() => {
+      const wrap = document.createElement("div");
+      wrap.className = "builder-switches";
+      wrap.append(
+        createCheckbox("\u0412\u044b\u0431\u0440\u0430\u043d\u043e \u043f\u043e \u0443\u043c\u043e\u043b\u0447\u0430\u043d\u0438\u044e", option.defaultSelected, checked => {
+          option.defaultSelected = checked;
+          applySchemaChanges({ resetValues: true });
+        }),
+        createCheckbox("\u0417\u0430\u0431\u043b\u043e\u043a\u0438\u0440\u043e\u0432\u0430\u043d\u043e", option.locked, checked => {
+          option.locked = checked;
+          applySchemaChanges({ resetValues: true });
+        })
+      );
+      return wrap;
+    })())
+  );
+  card.appendChild(row3);
+
+  const actions = document.createElement("div");
+  actions.className = "builder-inline-actions";
+
+  const removeBtn = document.createElement("button");
+  removeBtn.type = "button";
+  removeBtn.className = "button-secondary";
+  removeBtn.textContent = "\u0423\u0434\u0430\u043b\u0438\u0442\u044c \u0432\u0430\u0440\u0438\u0430\u043d\u0442";
+  removeBtn.addEventListener("click", () => {
+    options.splice(optionIndex, 1);
+    if (!options.length) {
+      options.push(createOptionTemplate());
+    }
+    applySchemaChanges({ resetValues: true, rerenderBuilder: true });
+  });
+
+  actions.appendChild(removeBtn);
+  card.appendChild(actions);
+  return card;
+}
+
+function renderFieldEditor(field, fields, index) {
+  const card = document.createElement("section");
+  card.className = "builder-item";
+  card.id = `builder-field-${field.id}`;
+
+  const { header, handle, title, meta } = createBuilderHeader(
+    field.label || `\u041f\u043e\u043b\u0435 ${index + 1}`,
+    `\u041f\u043e\u043b\u0435 ${index + 1} \u2022 ID: ${field.id}`,
+    "\u041f\u0435\u0440\u0435\u0442\u0430\u0449\u0438\u0442\u044c \u0432\u043e\u043f\u0440\u043e\u0441"
+  );
+  card.appendChild(header);
+  attachSortable(card, handle, fields, index, "field");
+
+  const dependencyToggleRow = document.createElement("div");
+  dependencyToggleRow.className = "builder-inline-actions";
+
+  const dependencyToggle = document.createElement("button");
+  dependencyToggle.type = "button";
+  dependencyToggle.className = "button-secondary builder-dependency-toggle";
+  dependencyToggle.textContent = isDependenciesCollapsed(field.id)
+    ? `\u0417\u0430\u0432\u0438\u0441\u0438\u043c\u043e\u0441\u0442\u0438 \u0438 \u0432\u0438\u0434\u0438\u043c\u043e\u0441\u0442\u044c (${getDependencyRuleCount(field)})`
+    : "\u0421\u043a\u0440\u044b\u0442\u044c \u0437\u0430\u0432\u0438\u0441\u0438\u043c\u043e\u0441\u0442\u0438";
+  dependencyToggle.addEventListener("click", () => {
+    toggleDependenciesSection(field.id);
+  });
+  dependencyToggleRow.appendChild(dependencyToggle);
+  card.appendChild(dependencyToggleRow);
+
+  if (!isDependenciesCollapsed(field.id)) {
+    card.appendChild(renderDependenciesSection(field));
+  }
+
+  const row1 = document.createElement("div");
+  row1.className = "builder-row builder-row-2";
+  row1.append(
+    createBuilderField("\u041d\u0430\u0437\u0432\u0430\u043d\u0438\u0435 \u0432\u043e\u043f\u0440\u043e\u0441\u0430", createTextInput(field.label || "", value => {
+      field.label = value;
+      title.textContent = text(field.label || `\u041f\u043e\u043b\u0435 ${index + 1}`);
+      renderBuilderOutline();
+      applySchemaChanges();
+    })),
+    createBuilderField("\u041f\u043e\u0434\u0441\u043a\u0430\u0437\u043a\u0430", createTextInput(field.hint || "", value => {
+      field.hint = value;
+      applySchemaChanges();
+    }))
+  );
+  card.appendChild(row1);
+
+  const row2 = document.createElement("div");
+  row2.className = "builder-row builder-row-field-meta";
+  row2.append(
+    createBuilderField("ID \u043f\u043e\u043b\u044f", createCommittedTextInput(field.id || "", value => {
+      field.id = value;
+      meta.textContent = `\u041f\u043e\u043b\u0435 ${index + 1} \u2022 ID: ${field.id || "\u0431\u0435\u0437 id"}`;
+    }, value => {
+      field.id = value || generateId("field");
+      meta.textContent = `\u041f\u043e\u043b\u0435 ${index + 1} \u2022 ID: ${field.id}`;
+      applySchemaChanges({ resetValues: true, rerenderBuilder: true });
+    }), "builder-group-compact"),
+    createBuilderField("\u0422\u0438\u043f", createSelectInput(field.type || "single", [
+      { value: "single", label: "\u041e\u0434\u0438\u043d \u0432\u0430\u0440\u0438\u0430\u043d\u0442" },
+      { value: "multi", label: "\u041d\u0435\u0441\u043a\u043e\u043b\u044c\u043a\u043e \u0432\u0430\u0440\u0438\u0430\u043d\u0442\u043e\u0432" },
+      { value: "text", label: "\u0422\u0435\u043a\u0441\u0442" },
+      { value: "date", label: "\u0414\u0430\u0442\u0430" }
+    ], value => {
+      field.type = value;
+      if (value === "text" || value === "date") {
+        delete field.options;
+        field.appearance = "";
+      } else if (!Array.isArray(field.options) || !field.options.length) {
+        field.options = [createOptionTemplate()];
+        }
+      applySchemaChanges({ resetValues: true, rerenderBuilder: true });
+    }), "builder-group-compact"),
+    createBuilderField("\u0412\u0438\u0434", (() => {
+      const appearanceSelect = createSelectInput(field.appearance || "default", [
+      { value: "default", label: "\u041e\u0431\u044b\u0447\u043d\u044b\u0439" },
+      { value: "media-grid", label: "\u041a\u0430\u0440\u0442\u043e\u0447\u043a\u0438 \u0441 \u0438\u0437\u043e\u0431\u0440\u0430\u0436\u0435\u043d\u0438\u0435\u043c" },
+      { value: "media-carousel", label: "\u041a\u0430\u0440\u0443\u0441\u0435\u043b\u044c \u0441 \u0438\u0437\u043e\u0431\u0440\u0430\u0436\u0435\u043d\u0438\u044f\u043c\u0438" }
+    ], value => {
+      field.appearance = value === "default" ? "" : value;
+      applySchemaChanges({ rerenderBuilder: true });
+    });
+      if (field.type === "text" || field.type === "date") {
+        appearanceSelect.value = "default";
+        appearanceSelect.disabled = true;
+      }
+      return appearanceSelect;
+    })(), "builder-group-compact"),
+    createBuilderField("\u041f\u0440\u043e\u043c\u043e-\u0442\u0435\u0433", createTextInput(field.promoTag || "", value => {
+      field.promoTag = value;
+      applySchemaChanges();
+    }), "builder-group-compact"),
+    createBuilderField("\u041f\u0440\u043e\u043c\u043e-\u0437\u0430\u0433\u043e\u043b\u043e\u0432\u043e\u043a", createTextInput(field.promoTitle || "", value => {
+      field.promoTitle = value;
+      applySchemaChanges();
+    }), "builder-group-compact")
+  );
+  card.appendChild(row2);
+
+  const row3 = document.createElement("div");
+  row3.className = "builder-row builder-row-2";
+  row3.append(
+    createBuilderField("\u041f\u0440\u043e\u043c\u043e-\u043f\u043e\u0434\u0437\u0430\u0433\u043e\u043b\u043e\u0432\u043e\u043a", createTextarea(field.promoSubtitle || "", value => {
+      field.promoSubtitle = value;
+      applySchemaChanges();
+    })),
+    createBuilderField("\u0424\u043b\u0430\u0433\u0438", (() => {
+      const wrap = document.createElement("div");
+      wrap.className = "builder-switches";
+      wrap.append(
+        createCheckbox("\u041e\u0431\u044f\u0437\u0430\u0442\u0435\u043b\u044c\u043d\u043e\u0435 \u043f\u043e\u043b\u0435", field.required, checked => {
+          field.required = checked;
+          applySchemaChanges({ resetValues: true });
+        })
+      );
+      return wrap;
+    })())
+  );
+  card.appendChild(row3);
+
+  if (field.type !== "text" && field.type !== "date") {
+    if (!Array.isArray(field.options) || !field.options.length) {
+      field.options = [createOptionTemplate()];
+    }
+
+    const optionsWrap = document.createElement("div");
+    optionsWrap.className = "builder-list";
+    field.options.forEach((option, optionIndex) => {
+      optionsWrap.appendChild(renderOptionEditor(option, field.options, optionIndex, field));
+    });
+    card.appendChild(optionsWrap);
+
+    const addOptionBtn = document.createElement("button");
+    addOptionBtn.type = "button";
+    addOptionBtn.className = "builder-add-option-btn";
+    addOptionBtn.textContent = "\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u0432\u0430\u0440\u0438\u0430\u043d\u0442";
+    addOptionBtn.addEventListener("click", () => {
+      field.options.push(createOptionTemplate());
+      applySchemaChanges({ resetValues: true, rerenderBuilder: true });
+    });
+    card.appendChild(addOptionBtn);
+  }
+
+  const fieldActions = document.createElement("div");
+  fieldActions.className = "builder-field-actions";
+
+  const duplicateBtn = document.createElement("button");
+  duplicateBtn.type = "button";
+  duplicateBtn.className = "button-secondary";
+  duplicateBtn.textContent = "\u0414\u0443\u0431\u043b\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u043f\u043e\u043b\u0435";
+  duplicateBtn.addEventListener("click", () => {
+    fields.splice(index + 1, 0, cloneFieldForInsert(field));
+    applySchemaChanges({ resetValues: true, rerenderBuilder: true });
+  });
+
+  const removeBtn = document.createElement("button");
+  removeBtn.type = "button";
+  removeBtn.className = "button-secondary";
+  removeBtn.textContent = "\u0423\u0434\u0430\u043b\u0438\u0442\u044c \u043f\u043e\u043b\u0435";
+  removeBtn.addEventListener("click", () => {
+    removeFieldAt(index);
+  });
+
+  fieldActions.append(duplicateBtn, removeBtn);
+  card.appendChild(fieldActions);
+  return card;
+}
+function renderUiConfigEditor() {
+  const card = document.createElement("section");
+  card.className = "builder-item builder-editor-card builder-settings-card";
+  card.id = "builder-section-ui";
+
+  const title = document.createElement("h4");
+  title.className = "builder-section-title";
+  title.textContent = "\u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438 \u0444\u043e\u0440\u043c\u044b";
+  card.appendChild(title);
+
+  const note = document.createElement("p");
+  note.className = "field-hint builder-editor-note";
+  note.textContent = "\u0417\u0434\u0435\u0441\u044c \u043c\u0435\u043d\u044f\u044e\u0442\u0441\u044f \u0442\u0435\u043a\u0441\u0442\u044b hero-\u0431\u043b\u043e\u043a\u0430, \u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044c\u0441\u043a\u0438\u0445 \u043f\u043e\u043b\u0435\u0439 \u0438 \u043a\u043d\u043e\u043f\u043e\u043a \u0444\u043e\u0440\u043c\u044b.";
+  card.appendChild(note);
+
+  const sections = document.createElement("div");
+  sections.className = "builder-panel-sections";
+
+  const formMetaRow = document.createElement("div");
+  formMetaRow.className = "builder-row builder-row-2";
+  formMetaRow.append(
+    createBuilderField("\u041d\u0430\u0437\u0432\u0430\u043d\u0438\u0435 \u0444\u043e\u0440\u043c\u044b", createTextInput(state.builder.selectedFormTitle || "", value => {
+      state.builder.selectedFormTitle = value;
+    })),
+    createBuilderField("\u0410\u0434\u0440\u0435\u0441 \u0444\u043e\u0440\u043c\u044b", createTextInput(state.builder.selectedFormSlug || "", value => {
+      state.builder.selectedFormSlug = slugifyFormValue(value);
+    }))
+  );
+
+  const formDangerRow = document.createElement("div");
+  formDangerRow.className = "builder-panel-actions";
+  const deleteFormBtn = document.createElement("button");
+  deleteFormBtn.type = "button";
+  deleteFormBtn.className = "button-secondary";
+  deleteFormBtn.textContent = "\u0423\u0434\u0430\u043b\u0438\u0442\u044c \u0444\u043e\u0440\u043c\u0443";
+  deleteFormBtn.disabled = !getSelectedBuilderFormRecord();
+  deleteFormBtn.addEventListener("click", () => {
+    const selectedForm = getSelectedBuilderFormRecord();
+    if (selectedForm) {
+      deleteBuilderForm(selectedForm);
+    }
+  });
+  formDangerRow.appendChild(deleteFormBtn);
+
+  const heroRow = document.createElement("div");
+  heroRow.className = "builder-row builder-row-3";
+  heroRow.append(
+    createBuilderField("\u041f\u043b\u0430\u0448\u043a\u0430 hero", createTextInput(state.uiConfig.heroKicker || "", value => {
+      state.uiConfig.heroKicker = value;
+      applySchemaChanges();
+    })),
+    createBuilderField("\u0411\u0435\u0439\u0434\u0436 hero", createTextInput(state.uiConfig.heroBadge || "", value => {
+      state.uiConfig.heroBadge = value;
+      applySchemaChanges();
+    })),
+    createBuilderField("\u041f\u043e\u0434\u043f\u0438\u0441\u044c \u0441\u043f\u0440\u0430\u0432\u0430", createTextInput(state.uiConfig.heroNote || "", value => {
+      state.uiConfig.heroNote = value;
+      applySchemaChanges();
+    }))
+  );
+
+  const heroTextRow = document.createElement("div");
+  heroTextRow.className = "builder-row";
+  heroTextRow.append(
+    createBuilderField("\u0413\u043b\u0430\u0432\u043d\u044b\u0439 \u0437\u0430\u0433\u043e\u043b\u043e\u0432\u043e\u043a", createTextarea(state.uiConfig.heroHeadline || "", value => {
+      state.uiConfig.heroHeadline = value;
+      applySchemaChanges();
+    })),
+    createBuilderField("\u041f\u043e\u0434\u0437\u0430\u0433\u043e\u043b\u043e\u0432\u043e\u043a", createTextarea(state.uiConfig.heroSubline || "", value => {
+      state.uiConfig.heroSubline = value;
+      applySchemaChanges();
+    }))
+  );
+
+  const userRow = document.createElement("div");
+  userRow.className = "builder-row builder-row-3";
+  userRow.append(
+    createBuilderField("\u0417\u0430\u0433\u043e\u043b\u043e\u0432\u043e\u043a \u0431\u043b\u043e\u043a\u0430", createTextInput(state.uiConfig.userSectionTitle || "", value => {
+      state.uiConfig.userSectionTitle = value;
+      applySchemaChanges();
+    })),
+    createBuilderField("\u041f\u043b\u0435\u0439\u0441\u0445\u043e\u043b\u0434\u0435\u0440 \u0424\u0418\u041e", createTextInput(state.uiConfig.namePlaceholder || "", value => {
+      state.uiConfig.namePlaceholder = value;
+      applySchemaChanges();
+    })),
+    createBuilderField("\u041f\u043b\u0435\u0439\u0441\u0445\u043e\u043b\u0434\u0435\u0440 \u0433\u0440\u0443\u043f\u043f\u044b", createTextInput(state.uiConfig.groupPlaceholder || "", value => {
+      state.uiConfig.groupPlaceholder = value;
+      applySchemaChanges();
+    }))
+  );
+
+  const userHintRow = document.createElement("div");
+  userHintRow.className = "builder-row";
+  userHintRow.append(
+    createBuilderField("\u041f\u043e\u0434\u0441\u043a\u0430\u0437\u043a\u0430 \u0431\u043b\u043e\u043a\u0430 \u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044f", createTextarea(state.uiConfig.userSectionHint || "", value => {
+      state.uiConfig.userSectionHint = value;
+      applySchemaChanges();
+    }))
+  );
+
+  const countRow = document.createElement("div");
+  countRow.className = "builder-row builder-row-2";
+  countRow.append(
+    createBuilderField("\u0423\u0447\u0430\u0441\u0442\u043d\u0438\u043a\u043e\u0432 \u043d\u0430 \u0441\u0430\u0439\u0442\u0435", createTextInput(state.uiConfig.displayParticipantsCount || getDisplayParticipantCount(), value => {
+      state.uiConfig.displayParticipantsCount = Math.max(1, Number(value) || CONFIG.participants);
+      applySchemaChanges();
+    }, "number")),
+    createBuilderField("\u0423\u0447\u0430\u0441\u0442\u043d\u0438\u043a\u043e\u0432 \u0434\u043b\u044f \u0446\u0435\u043d\u044b", createTextInput(state.uiConfig.pricingParticipantsCount || state.uiConfig.participantsCount || getPricingParticipantCount(), value => {
+      const normalized = Math.max(1, Number(value) || CONFIG.participants);
+      state.uiConfig.pricingParticipantsCount = normalized;
+      state.uiConfig.participantsCount = normalized;
+      applySchemaChanges();
+    }, "number"))
+  );
+
+  const labelsRow = document.createElement("div");
+  labelsRow.className = "builder-row builder-row-3";
+  labelsRow.append(
+    createBuilderField("\u0421\u0447\u0435\u0442\u0447\u0438\u043a \u0443\u0447\u0430\u0441\u0442\u043d\u0438\u043a\u043e\u0432", createTextInput(state.uiConfig.participantsStatLabel || "", value => {
+      state.uiConfig.participantsStatLabel = value;
+      applySchemaChanges();
+    })),
+    createBuilderField("\u0421\u0447\u0435\u0442\u0447\u0438\u043a \u043e\u0442\u0432\u0435\u0442\u043e\u0432", createTextInput(state.uiConfig.responsesStatLabel || "", value => {
+      state.uiConfig.responsesStatLabel = value;
+      applySchemaChanges();
+    })),
+    createBuilderField("\u041f\u043e\u0434\u043f\u0438\u0441\u044c \u0446\u0435\u043d\u044b", createTextInput(state.uiConfig.ticketLabel || "", value => {
+      state.uiConfig.ticketLabel = value;
+      applySchemaChanges();
+    }))
+  );
+
+  const buttonRow = document.createElement("div");
+  buttonRow.className = "builder-row builder-row-3";
+  buttonRow.append(
+    createBuilderField("\u041a\u043d\u043e\u043f\u043a\u0430 \u0438\u0442\u043e\u0433\u0430", createTextInput(state.uiConfig.detailsButtonLabel || "", value => {
+      state.uiConfig.detailsButtonLabel = value;
+      applySchemaChanges();
+    })),
+    createBuilderField("\u041a\u043d\u043e\u043f\u043a\u0430 \u043e\u0442\u043f\u0440\u0430\u0432\u043a\u0438", createTextInput(state.uiConfig.saveButtonLabel || "", value => {
+      state.uiConfig.saveButtonLabel = value;
+      applySchemaChanges();
+    })),
+    createBuilderField("\u041a\u043d\u043e\u043f\u043a\u0430 \u043f\u043e\u0432\u0442\u043e\u0440\u043d\u043e\u0439 \u043e\u0442\u043f\u0440\u0430\u0432\u043a\u0438", createTextInput(state.uiConfig.resubmitButtonLabel || "", value => {
+      state.uiConfig.resubmitButtonLabel = value;
+      applySchemaChanges();
+    }))
+  );
+
+  const draftRow = document.createElement("div");
+  draftRow.className = "builder-row";
+  draftRow.append(
+    createBuilderField("\u0422\u0435\u043a\u0441\u0442 \u043f\u043e\u0441\u043b\u0435 \u043e\u0442\u043f\u0440\u0430\u0432\u043a\u0438", createTextarea(state.uiConfig.draftStatusText || "", value => {
+      state.uiConfig.draftStatusText = value;
+      applySchemaChanges();
+    }))
+  );
+
+  sections.append(
+    createBuilderPanelSection("\u041f\u0430\u0440\u0430\u043c\u0435\u0442\u0440\u044b \u0444\u043e\u0440\u043c\u044b", "\u0417\u0434\u0435\u0441\u044c \u043c\u043e\u0436\u043d\u043e \u0438\u0437\u043c\u0435\u043d\u0438\u0442\u044c \u043d\u0430\u0437\u0432\u0430\u043d\u0438\u0435 \u0444\u043e\u0440\u043c\u044b \u0438 \u0435\u0435 \u0430\u0434\u0440\u0435\u0441 \u0434\u043b\u044f \u043f\u0443\u0431\u043b\u0438\u0447\u043d\u043e\u0439 \u0441\u0441\u044b\u043b\u043a\u0438.", formMetaRow, formDangerRow),
+    createBuilderPanelSection("Hero \u0438 \u0432\u0435\u0440\u0445 \u0444\u043e\u0440\u043c\u044b", "\u041a\u0440\u0443\u043f\u043d\u044b\u0435 \u0442\u0435\u043a\u0441\u0442\u044b \u0438 \u043f\u0440\u043e\u0434\u0430\u044e\u0449\u0438\u0435 \u043f\u043e\u0434\u043f\u0438\u0441\u0438 \u043f\u0435\u0440\u0432\u043e\u0433\u043e \u044d\u043a\u0440\u0430\u043d\u0430.", heroRow, heroTextRow),
+    createBuilderPanelSection("\u041f\u043e\u043b\u044f \u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044f", "\u041f\u043e\u0434\u043f\u0438\u0441\u0438 \u0438 \u0442\u0435\u043a\u0441\u0442\u044b \u0431\u043b\u043e\u043a\u0430 \u0441 \u0438\u043c\u0435\u043d\u0435\u043c \u0438 \u0433\u0440\u0443\u043f\u043f\u043e\u0439.", userRow, userHintRow, countRow),
+    createBuilderPanelSection("\u041f\u043e\u0434\u043f\u0438\u0441\u0438 \u0438 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044f", "\u041a\u043d\u043e\u043f\u043a\u0438, \u0441\u0447\u0435\u0442\u0447\u0438\u043a\u0438 \u0438 \u0442\u0435\u043a\u0441\u0442 \u043f\u043e\u0441\u043b\u0435 \u043e\u0442\u043f\u0440\u0430\u0432\u043a\u0438.", labelsRow, buttonRow, draftRow)
+  );
+
+  card.appendChild(sections);
   return card;
 }
 
@@ -2816,139 +3719,221 @@ function renderThemeEditor() {
 
   const title = document.createElement("h4");
   title.className = "builder-section-title";
-  title.textContent = "Тема и кнопки";
+  title.textContent = "\u0422\u0435\u043c\u0430 \u0438 \u0446\u0432\u0435\u0442\u0430";
   card.appendChild(title);
 
   const note = document.createElement("p");
   note.className = "field-hint builder-editor-note";
-  note.textContent = "Палитра разбита по смысловым блокам: фон страницы, hero, карточки, кнопки и таблица итогов.";
+  note.textContent = state.builder.themeMode === "basic"
+    ? "\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0433\u043e\u0442\u043e\u0432\u0443\u044e \u043f\u0430\u043b\u0438\u0442\u0440\u0443 \u0438\u043b\u0438 \u043f\u043e\u0434\u043a\u0440\u0443\u0442\u0438\u0442\u0435 \u0441\u0430\u043c\u044b\u0435 \u0432\u0430\u0436\u043d\u044b\u0435 \u0430\u043a\u0446\u0435\u043d\u0442\u044b."
+    : "\u0420\u0430\u0441\u0448\u0438\u0440\u0435\u043d\u043d\u044b\u0439 \u0440\u0435\u0436\u0438\u043c \u0434\u0430\u0435\u0442 \u0442\u043e\u0447\u043d\u0443\u044e \u043d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0443 \u0432\u0441\u0435\u0445 \u0446\u0432\u0435\u0442\u043e\u0432.";
   card.appendChild(note);
+
+  const modeRow = document.createElement("div");
+  modeRow.className = "builder-theme-mode";
+  [
+    { value: "basic", label: "\u0411\u0430\u0437\u043e\u0432\u044b\u0439" },
+    { value: "advanced", label: "\u0420\u0430\u0441\u0448\u0438\u0440\u0435\u043d\u043d\u044b\u0439" }
+  ].forEach(item => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `button-secondary${state.builder.themeMode === item.value ? " builder-theme-mode-active" : ""}`;
+    button.textContent = item.label;
+    button.addEventListener("click", () => {
+      state.builder.themeMode = item.value;
+      renderBuilder();
+    });
+    modeRow.appendChild(button);
+  });
+  card.appendChild(modeRow);
 
   const sections = document.createElement("div");
   sections.className = "builder-panel-sections";
 
-  const row1 = document.createElement("div");
-  row1.className = "builder-row builder-row-3";
-  row1.append(
-    createBuilderField("Фон: свечение 1", createColorInput(getThemeColorValue(cfg, "pageGlowPrimary", "--page-glow-primary", "#ddff00"), value => {
-      state.uiConfig.pageGlowPrimary = value;
-      applySchemaChanges();
-    })),
-    createBuilderField("Фон: свечение 2", createColorInput(getThemeColorValue(cfg, "pageGlowSecondary", "--page-glow-secondary", "#ff3a3a"), value => {
-      state.uiConfig.pageGlowSecondary = value;
-      applySchemaChanges();
-    })),
-    createBuilderField("Фон страницы: старт", createColorInput(getThemeColorValue(cfg, "pageBgStart", "--page-bg-start", "#0f1013"), value => {
-      state.uiConfig.pageBgStart = value;
-      applySchemaChanges();
-    }))
-  );
-  const row2 = document.createElement("div");
-  row2.className = "builder-row builder-row-3";
-  row2.append(
-    createBuilderField("Фон страницы: середина", createColorInput(getThemeColorValue(cfg, "pageBgMid", "--page-bg-mid", "#262b34"), value => {
-      state.uiConfig.pageBgMid = value;
-      applySchemaChanges();
-    })),
-    createBuilderField("Фон страницы: конец", createColorInput(getThemeColorValue(cfg, "pageBgEnd", "--page-bg-end", "#121519"), value => {
-      state.uiConfig.pageBgEnd = value;
-      applySchemaChanges();
-    })),
-    createBuilderField("Hero: акцент", createColorInput(getThemeColorValue(cfg, "heroAccent", "--hero-accent", "#d9ff3f"), value => {
-      state.uiConfig.heroAccent = value;
-      applySchemaChanges();
-    }))
-  );
-  const row3 = document.createElement("div");
-  row3.className = "builder-row builder-row-3";
-  row3.append(
-    createBuilderField("Hero: фон старт", createColorInput(getThemeColorValue(cfg, "heroSurfaceStart", "--hero-surface-start", "#0b0c10"), value => {
-      state.uiConfig.heroSurfaceStart = value;
-      applySchemaChanges();
-    })),
-    createBuilderField("Hero: фон конец", createColorInput(getThemeColorValue(cfg, "heroSurfaceEnd", "--hero-surface-end", "#111217"), value => {
-      state.uiConfig.heroSurfaceEnd = value;
-      applySchemaChanges();
-    })),
-    createBuilderField("Карточки: фон старт", createColorInput(getThemeColorValue(cfg, "surfaceStart", "--surface-start", "#121318"), value => {
-      state.uiConfig.surfaceStart = value;
-      applySchemaChanges();
-    }))
-  );
-  const row4 = document.createElement("div");
-  row4.className = "builder-row builder-row-3";
-  row4.append(
-    createBuilderField("Карточки: фон конец", createColorInput(getThemeColorValue(cfg, "surfaceEnd", "--surface-end", "#1a1c22"), value => {
-      state.uiConfig.surfaceEnd = value;
-      applySchemaChanges();
-    })),
-    createBuilderField("Карточки: текст", createColorInput(getThemeColorValue(cfg, "surfaceText", "--surface-text", "#f6f8f1"), value => {
-      state.uiConfig.surfaceText = value;
-      applySchemaChanges();
-    })),
-    createBuilderField("Карточки: обводка", createColorInput(getThemeColorValue(cfg, "surfaceBorder", "--surface-border", "#444444"), value => {
-      state.uiConfig.surfaceBorder = value;
-      applySchemaChanges();
-    }))
-  );
-  const row5 = document.createElement("div");
-  row5.className = "builder-row builder-row-3";
-  row5.append(
-    createBuilderField("Основная кнопка: старт", createColorInput(getThemeColorValue(cfg, "buttonPrimaryStart", "--button-primary-start", "#0f766e"), value => {
-      state.uiConfig.buttonPrimaryStart = value;
-      applySchemaChanges();
-    })),
-    createBuilderField("Основная кнопка: конец", createColorInput(getThemeColorValue(cfg, "buttonPrimaryEnd", "--button-primary-end", "#059669"), value => {
-      state.uiConfig.buttonPrimaryEnd = value;
-      applySchemaChanges();
-    })),
-    createBuilderField("Кнопка итогов: старт", createColorInput(getThemeColorValue(cfg, "buttonDetailsStart", "--button-details-start", "#475569"), value => {
-      state.uiConfig.buttonDetailsStart = value;
-      applySchemaChanges();
-    }))
-  );
-  const row6 = document.createElement("div");
-  row6.className = "builder-row builder-row-3";
-  row6.append(
-    createBuilderField("Кнопка итогов: конец", createColorInput(getThemeColorValue(cfg, "buttonDetailsEnd", "--button-details-end", "#334155"), value => {
-      state.uiConfig.buttonDetailsEnd = value;
-      applySchemaChanges();
-    })),
-    createBuilderField("Вторичная кнопка: фон", createColorInput(getThemeColorValue(cfg, "buttonSecondaryBg", "--button-secondary-bg", "#e5e7eb"), value => {
-      state.uiConfig.buttonSecondaryBg = value;
-      applySchemaChanges();
-    })),
-    createBuilderField("Вторичная кнопка: текст", createColorInput(getThemeColorValue(cfg, "buttonSecondaryText", "--button-secondary-text", "#1f2937"), value => {
-      state.uiConfig.buttonSecondaryText = value;
-      applySchemaChanges();
-    }))
-  );
-  const row7 = document.createElement("div");
-  row7.className = "builder-row";
-  row7.append(
-    createBuilderField("Таблица итогов: верх", createColorInput(getThemeColorValue(cfg, "checkTableStart", "--check-table-start", "#161920"), value => {
-      state.uiConfig.checkTableStart = value;
-      applySchemaChanges();
-    })),
-    createBuilderField("Таблица итогов: низ", createColorInput(getThemeColorValue(cfg, "checkTableEnd", "--check-table-end", "#0f1218"), value => {
-      state.uiConfig.checkTableEnd = value;
-      applySchemaChanges();
-    }))
-  );
-  sections.append(
-    createBuilderPanelSection("Фон страницы", "Глобальный фон и световые акценты.", row1, row2),
-    createBuilderPanelSection("Hero и карточки", "Акцентный цвет, hero и базовые поверхности формы.", row3, row4),
-    createBuilderPanelSection("Кнопки и таблица итогов", "CTA-кнопки, вторичные действия и итоговая таблица.", row5, row6, row7)
-  );
+  if (state.builder.themeMode === "basic") {
+    const presetsWrap = document.createElement("div");
+    presetsWrap.className = "builder-theme-presets";
+    [
+      {
+        name: "\u0411\u0430\u0437\u043e\u0432\u0430\u044f",
+        values: { heroAccent: "#d9ff3f", buttonPrimaryStart: "#0f766e", buttonPrimaryEnd: "#059669", pageBgStart: "#0f1013", pageBgMid: "#262b34", pageBgEnd: "#121519", pageGlowPrimary: "#ddff00", pageGlowSecondary: "#ff3a3a" }
+      },
+      {
+        name: "\u041e\u043b\u0438\u0432\u043a\u0430",
+        values: { heroAccent: "#d7ff39", buttonPrimaryStart: "#15803d", buttonPrimaryEnd: "#16a34a", pageBgStart: "#13150f", pageBgMid: "#27281d", pageBgEnd: "#171810", pageGlowPrimary: "#d7ff39", pageGlowSecondary: "#95c11f" }
+      },
+      {
+        name: "\u041d\u043e\u0447\u043d\u0430\u044f",
+        values: { heroAccent: "#7cf5ff", buttonPrimaryStart: "#2563eb", buttonPrimaryEnd: "#0ea5e9", pageBgStart: "#0d1320", pageBgMid: "#1c2434", pageBgEnd: "#101822", pageGlowPrimary: "#38bdf8", pageGlowSecondary: "#6366f1" }
+      },
+      {
+        name: "\u0422\u0435\u043f\u043b\u0430\u044f",
+        values: { heroAccent: "#ffd166", buttonPrimaryStart: "#ef4444", buttonPrimaryEnd: "#f97316", pageBgStart: "#1f1311", pageBgMid: "#2b1f1c", pageBgEnd: "#1a1210", pageGlowPrimary: "#f97316", pageGlowSecondary: "#ef4444" }
+      },
+      {
+        name: "\u0424\u0438\u043e\u043b\u0435\u0442",
+        values: { heroAccent: "#c4b5fd", buttonPrimaryStart: "#7c3aed", buttonPrimaryEnd: "#a855f7", pageBgStart: "#161221", pageBgMid: "#241f36", pageBgEnd: "#171223", pageGlowPrimary: "#8b5cf6", pageGlowSecondary: "#ec4899" }
+      },
+      {
+        name: "\u041c\u043e\u0440\u0441\u043a\u0430\u044f",
+        values: { heroAccent: "#67e8f9", buttonPrimaryStart: "#0f766e", buttonPrimaryEnd: "#0891b2", pageBgStart: "#0e1a1d", pageBgMid: "#182a30", pageBgEnd: "#10191b", pageGlowPrimary: "#06b6d4", pageGlowSecondary: "#14b8a6" }
+      },
+      {
+        name: "\u041c\u0438\u043d\u0438\u043c\u0430\u043b",
+        values: { heroAccent: "#f8fafc", buttonPrimaryStart: "#475569", buttonPrimaryEnd: "#334155", pageBgStart: "#121418", pageBgMid: "#1f232b", pageBgEnd: "#15181d", pageGlowPrimary: "#94a3b8", pageGlowSecondary: "#64748b" }
+      }
+    ].forEach(preset => {
+      const presetBtn = document.createElement("button");
+      presetBtn.type = "button";
+      presetBtn.className = "builder-theme-preset";
+      presetBtn.innerHTML = `<span class="builder-theme-preset-swatches"><span style="background:${preset.values.heroAccent}"></span><span style="background:${preset.values.buttonPrimaryStart}"></span><span style="background:${preset.values.pageBgMid}"></span></span><span>${preset.name}</span>`;
+      presetBtn.addEventListener("click", () => {
+        Object.assign(state.uiConfig, preset.values);
+        applySchemaChanges();
+        renderBuilder();
+      });
+      presetsWrap.appendChild(presetBtn);
+    });
+
+    const quickRow = document.createElement("div");
+    quickRow.className = "builder-row builder-row-3";
+    quickRow.append(
+      createBuilderField("\u0410\u043a\u0446\u0435\u043d\u0442", createColorInput(getThemeColorValue(cfg, "heroAccent", "--hero-accent", "#d9ff3f"), value => {
+        state.uiConfig.heroAccent = value;
+        applySchemaChanges();
+      })),
+      createBuilderField("\u041e\u0441\u043d\u043e\u0432\u043d\u0430\u044f \u043a\u043d\u043e\u043f\u043a\u0430", createColorInput(getThemeColorValue(cfg, "buttonPrimaryStart", "--button-primary-start", "#0f766e"), value => {
+        state.uiConfig.buttonPrimaryStart = value;
+        state.uiConfig.buttonPrimaryEnd = value;
+        applySchemaChanges();
+      })),
+      createBuilderField("\u0424\u043e\u043d", createColorInput(getThemeColorValue(cfg, "pageBgMid", "--page-bg-mid", "#262b34"), value => {
+        state.uiConfig.pageBgMid = value;
+        applySchemaChanges();
+      }))
+    );
+
+    sections.append(
+      createBuilderPanelSection("\u0411\u044b\u0441\u0442\u0440\u044b\u0439 \u0432\u044b\u0431\u043e\u0440", "\u041f\u0440\u0435\u0441\u0435\u0442\u044b \u0434\u043b\u044f \u0440\u044f\u0434\u043e\u0432\u043e\u0433\u043e \u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044f.", presetsWrap),
+      createBuilderPanelSection("\u041e\u0441\u043d\u043e\u0432\u043d\u044b\u0435 \u0446\u0432\u0435\u0442\u0430", "\u041c\u0438\u043d\u0438\u043c\u0443\u043c \u043d\u0430\u0441\u0442\u0440\u043e\u0435\u043a \u0431\u0435\u0437 \u043f\u0435\u0440\u0435\u0433\u0440\u0443\u0437\u0430.", quickRow)
+    );
+  } else {
+    const row1 = document.createElement("div");
+    row1.className = "builder-row builder-row-3";
+    row1.append(
+      createBuilderField("\u0424\u043e\u043d: \u0441\u0432\u0435\u0447\u0435\u043d\u0438\u0435 1", createColorInput(getThemeColorValue(cfg, "pageGlowPrimary", "--page-glow-primary", "#ddff00"), value => {
+        state.uiConfig.pageGlowPrimary = value;
+        applySchemaChanges();
+      })),
+      createBuilderField("\u0424\u043e\u043d: \u0441\u0432\u0435\u0447\u0435\u043d\u0438\u0435 2", createColorInput(getThemeColorValue(cfg, "pageGlowSecondary", "--page-glow-secondary", "#ff3a3a"), value => {
+        state.uiConfig.pageGlowSecondary = value;
+        applySchemaChanges();
+      })),
+      createBuilderField("\u0424\u043e\u043d \u0441\u0442\u0440\u0430\u043d\u0438\u0446\u044b: \u0441\u0442\u0430\u0440\u0442", createColorInput(getThemeColorValue(cfg, "pageBgStart", "--page-bg-start", "#0f1013"), value => {
+        state.uiConfig.pageBgStart = value;
+        applySchemaChanges();
+      }))
+    );
+    const row2 = document.createElement("div");
+    row2.className = "builder-row builder-row-3";
+    row2.append(
+      createBuilderField("\u0424\u043e\u043d \u0441\u0442\u0440\u0430\u043d\u0438\u0446\u044b: \u0441\u0435\u0440\u0435\u0434\u0438\u043d\u0430", createColorInput(getThemeColorValue(cfg, "pageBgMid", "--page-bg-mid", "#262b34"), value => {
+        state.uiConfig.pageBgMid = value;
+        applySchemaChanges();
+      })),
+      createBuilderField("\u0424\u043e\u043d \u0441\u0442\u0440\u0430\u043d\u0438\u0446\u044b: \u043a\u043e\u043d\u0435\u0446", createColorInput(getThemeColorValue(cfg, "pageBgEnd", "--page-bg-end", "#121519"), value => {
+        state.uiConfig.pageBgEnd = value;
+        applySchemaChanges();
+      })),
+      createBuilderField("Hero: \u0430\u043a\u0446\u0435\u043d\u0442", createColorInput(getThemeColorValue(cfg, "heroAccent", "--hero-accent", "#d9ff3f"), value => {
+        state.uiConfig.heroAccent = value;
+        applySchemaChanges();
+      }))
+    );
+    const row3 = document.createElement("div");
+    row3.className = "builder-row builder-row-3";
+    row3.append(
+      createBuilderField("Hero: \u0444\u043e\u043d \u0441\u0432\u0435\u0440\u0445\u0443", createColorInput(getThemeColorValue(cfg, "heroSurfaceStart", "--hero-surface-start", "#0b0c10"), value => {
+        state.uiConfig.heroSurfaceStart = value;
+        applySchemaChanges();
+      })),
+      createBuilderField("Hero: \u0444\u043e\u043d \u0441\u043d\u0438\u0437\u0443", createColorInput(getThemeColorValue(cfg, "heroSurfaceEnd", "--hero-surface-end", "#111217"), value => {
+        state.uiConfig.heroSurfaceEnd = value;
+        applySchemaChanges();
+      })),
+      createBuilderField("\u041a\u0430\u0440\u0442\u043e\u0447\u043a\u0438: \u0444\u043e\u043d \u0441\u0432\u0435\u0440\u0445\u0443", createColorInput(getThemeColorValue(cfg, "surfaceStart", "--surface-start", "#121318"), value => {
+        state.uiConfig.surfaceStart = value;
+        applySchemaChanges();
+      }))
+    );
+    const row4 = document.createElement("div");
+    row4.className = "builder-row builder-row-3";
+    row4.append(
+      createBuilderField("\u041a\u0430\u0440\u0442\u043e\u0447\u043a\u0438: \u0444\u043e\u043d \u0441\u043d\u0438\u0437\u0443", createColorInput(getThemeColorValue(cfg, "surfaceEnd", "--surface-end", "#1a1c22"), value => {
+        state.uiConfig.surfaceEnd = value;
+        applySchemaChanges();
+      })),
+      createBuilderField("\u041a\u0430\u0440\u0442\u043e\u0447\u043a\u0438: \u0442\u0435\u043a\u0441\u0442", createColorInput(getThemeColorValue(cfg, "surfaceText", "--surface-text", "#f6f8f1"), value => {
+        state.uiConfig.surfaceText = value;
+        applySchemaChanges();
+      })),
+      createBuilderField("\u041a\u0430\u0440\u0442\u043e\u0447\u043a\u0438: \u043e\u0431\u0432\u043e\u0434\u043a\u0430", createColorInput(getThemeColorValue(cfg, "surfaceBorder", "--surface-border", "#444444"), value => {
+        state.uiConfig.surfaceBorder = value;
+        applySchemaChanges();
+      }))
+    );
+    const row5 = document.createElement("div");
+    row5.className = "builder-row builder-row-3";
+    row5.append(
+      createBuilderField("\u041e\u0441\u043d\u043e\u0432\u043d\u0430\u044f \u043a\u043d\u043e\u043f\u043a\u0430: \u0441\u0442\u0430\u0440\u0442", createColorInput(getThemeColorValue(cfg, "buttonPrimaryStart", "--button-primary-start", "#0f766e"), value => {
+        state.uiConfig.buttonPrimaryStart = value;
+        applySchemaChanges();
+      })),
+      createBuilderField("\u041e\u0441\u043d\u043e\u0432\u043d\u0430\u044f \u043a\u043d\u043e\u043f\u043a\u0430: \u043a\u043e\u043d\u0435\u0446", createColorInput(getThemeColorValue(cfg, "buttonPrimaryEnd", "--button-primary-end", "#059669"), value => {
+        state.uiConfig.buttonPrimaryEnd = value;
+        applySchemaChanges();
+      })),
+      createBuilderField("\u041a\u043d\u043e\u043f\u043a\u0430 \u0438\u0442\u043e\u0433\u0430: \u0441\u0442\u0430\u0440\u0442", createColorInput(getThemeColorValue(cfg, "buttonDetailsStart", "--button-details-start", "#475569"), value => {
+        state.uiConfig.buttonDetailsStart = value;
+        applySchemaChanges();
+      }))
+    );
+    const row6 = document.createElement("div");
+    row6.className = "builder-row builder-row-3";
+    row6.append(
+      createBuilderField("\u041a\u043d\u043e\u043f\u043a\u0430 \u0438\u0442\u043e\u0433\u0430: \u043a\u043e\u043d\u0435\u0446", createColorInput(getThemeColorValue(cfg, "buttonDetailsEnd", "--button-details-end", "#334155"), value => {
+        state.uiConfig.buttonDetailsEnd = value;
+        applySchemaChanges();
+      })),
+      createBuilderField("\u0412\u0442\u043e\u0440\u0438\u0447\u043d\u0430\u044f \u043a\u043d\u043e\u043f\u043a\u0430: \u0444\u043e\u043d", createColorInput(getThemeColorValue(cfg, "buttonSecondaryBg", "--button-secondary-bg", "#e5e7eb"), value => {
+        state.uiConfig.buttonSecondaryBg = value;
+        applySchemaChanges();
+      })),
+      createBuilderField("\u0412\u0442\u043e\u0440\u0438\u0447\u043d\u0430\u044f \u043a\u043d\u043e\u043f\u043a\u0430: \u0442\u0435\u043a\u0441\u0442", createColorInput(getThemeColorValue(cfg, "buttonSecondaryText", "--button-secondary-text", "#1f2937"), value => {
+        state.uiConfig.buttonSecondaryText = value;
+        applySchemaChanges();
+      }))
+    );
+    const row7 = document.createElement("div");
+    row7.className = "builder-row builder-row-2";
+    row7.append(
+      createBuilderField("\u0422\u0430\u0431\u043b\u0438\u0446\u0430 \u0438\u0442\u043e\u0433\u043e\u0432: \u0432\u0435\u0440\u0445", createColorInput(getThemeColorValue(cfg, "checkTableStart", "--check-table-start", "#161920"), value => {
+        state.uiConfig.checkTableStart = value;
+        applySchemaChanges();
+      })),
+      createBuilderField("\u0422\u0430\u0431\u043b\u0438\u0446\u0430 \u0438\u0442\u043e\u0433\u043e\u0432: \u043d\u0438\u0437", createColorInput(getThemeColorValue(cfg, "checkTableEnd", "--check-table-end", "#0f1218"), value => {
+        state.uiConfig.checkTableEnd = value;
+        applySchemaChanges();
+      }))
+    );
+    sections.append(
+      createBuilderPanelSection("\u0424\u043e\u043d \u0441\u0442\u0440\u0430\u043d\u0438\u0446\u044b", "\u0421\u0432\u0435\u0447\u0435\u043d\u0438\u0435 \u0438 \u043e\u0441\u043d\u043e\u0432\u043d\u043e\u0439 \u0433\u0440\u0430\u0434\u0438\u0435\u043d\u0442 \u0441\u0442\u0440\u0430\u043d\u0438\u0446\u044b.", row1, row2),
+      createBuilderPanelSection("Hero \u0438 \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0438", "\u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438 hero-\u0431\u043b\u043e\u043a\u0430 \u0438 \u043a\u0430\u0440\u0442\u043e\u0447\u0435\u043a \u0432\u0430\u0440\u0438\u0430\u043d\u0442\u043e\u0432.", row3, row4),
+      createBuilderPanelSection("\u041a\u043d\u043e\u043f\u043a\u0438 \u0438 \u0442\u0430\u0431\u043b\u0438\u0446\u0430 \u0438\u0442\u043e\u0433\u043e\u0432", "\u041e\u0441\u043d\u043e\u0432\u043d\u044b\u0435 CTA \u0438 \u0442\u0430\u0431\u043b\u0438\u0446\u0430 \u0440\u0430\u0441\u0447\u0435\u0442\u0430 \u0438\u0442\u043e\u0433\u043e\u0432.", row5, row6, row7)
+    );
+  }
+
   card.appendChild(sections);
-
-  const saveThemeBtn = document.createElement("button");
-  saveThemeBtn.type = "button";
-  saveThemeBtn.className = "builder-primary-action";
-  saveThemeBtn.textContent = "Сохранить тему";
-  saveThemeBtn.addEventListener("click", saveSchemaNow);
-  card.appendChild(saveThemeBtn);
-
   return card;
 }
 
@@ -2959,18 +3944,18 @@ function renderResponsesPanel() {
 
   const title = document.createElement("h4");
   title.className = "builder-section-title";
-  title.textContent = "Ответы";
+  title.textContent = "\u041e\u0442\u0432\u0435\u0442\u044b";
   section.appendChild(title);
 
   const note = document.createElement("p");
   note.className = "field-hint";
-  note.textContent = "Последние ответы из базы данных. Показываем до 100 строк.";
+  note.textContent = "\u041f\u0440\u0435\u0434\u043f\u0440\u043e\u0441\u043c\u043e\u0442\u0440 \u043f\u043e\u0441\u043b\u0435\u0434\u043d\u0438\u0445 \u043e\u0442\u0432\u0435\u0442\u043e\u0432 \u043f\u043e \u0442\u0435\u043a\u0443\u0449\u0435\u0439 \u0444\u043e\u0440\u043c\u0435. \u0414\u043b\u044f Excel \u0434\u043e\u0441\u0442\u0443\u043f\u0435\u043d \u044d\u043a\u0441\u043f\u043e\u0440\u0442.";
   section.appendChild(note);
 
   const refreshBtn = document.createElement("button");
   refreshBtn.type = "button";
   refreshBtn.className = "button-secondary";
-  refreshBtn.textContent = state.builder.responses.loading ? "Загружаем..." : "Обновить ответы";
+  refreshBtn.textContent = state.builder.responses.loading ? "\u041e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u0438\u0435..." : "\u041e\u0431\u043d\u043e\u0432\u0438\u0442\u044c \u043e\u0442\u0432\u0435\u0442\u044b";
   refreshBtn.disabled = state.builder.responses.loading;
   refreshBtn.addEventListener("click", async () => {
     await loadResponsesPreview();
@@ -2983,10 +3968,18 @@ function renderResponsesPanel() {
   const exportBtn = document.createElement("button");
   exportBtn.type = "button";
   exportBtn.className = "button-secondary";
-  exportBtn.textContent = "Скачать таблицу";
+  exportBtn.textContent = "\u0421\u043a\u0430\u0447\u0430\u0442\u044c \u0442\u0430\u0431\u043b\u0438\u0446\u0443";
   exportBtn.disabled = state.builder.responses.loading || !state.builder.responses.rows.length;
   exportBtn.addEventListener("click", exportResponsesToExcel);
   actions.appendChild(exportBtn);
+
+  const deleteSelectedBtn = document.createElement("button");
+  deleteSelectedBtn.type = "button";
+  deleteSelectedBtn.className = "button-secondary";
+  deleteSelectedBtn.textContent = `\u0423\u0434\u0430\u043b\u0438\u0442\u044c \u0432\u044b\u0431\u0440\u0430\u043d\u043d\u044b\u0435${state.builder.responses.selectedKeys.length ? ` (${state.builder.responses.selectedKeys.length})` : ""}`;
+  deleteSelectedBtn.disabled = state.builder.responses.loading || !state.builder.responses.selectedKeys.length;
+  deleteSelectedBtn.addEventListener("click", deleteSelectedResponses);
+  actions.appendChild(deleteSelectedBtn);
 
   section.appendChild(actions);
 
@@ -2994,8 +3987,8 @@ function renderResponsesPanel() {
     const empty = document.createElement("p");
     empty.className = "field-hint";
     empty.textContent = state.builder.responses.loading
-      ? "Загружаем ответы..."
-      : "Ответов пока нет или они ещё не загружены.";
+      ? "\u0417\u0430\u0433\u0440\u0443\u0436\u0430\u0435\u043c \u043e\u0442\u0432\u0435\u0442\u044b..."
+      : "\u041f\u043e\u043a\u0430 \u043d\u0435\u0442 \u0434\u0430\u043d\u043d\u044b\u0445 \u0434\u043b\u044f \u043e\u0442\u043e\u0431\u0440\u0430\u0436\u0435\u043d\u0438\u044f.";
     section.appendChild(empty);
     return section;
   }
@@ -3008,28 +4001,190 @@ function renderResponsesPanel() {
 
   const thead = document.createElement("thead");
   const headRow = document.createElement("tr");
+  const selectedCount = state.builder.responses.selectedKeys.length;
+  const allKeys = state.builder.responses.records.map(record => cleanString(record?.submissionKey)).filter(Boolean);
+  const allSelected = Boolean(allKeys.length) && allKeys.every(key => state.builder.responses.selectedKeys.includes(key));
+
+  const selectHeader = document.createElement("th");
+  const selectAll = document.createElement("input");
+  selectAll.type = "checkbox";
+  selectAll.checked = allSelected;
+  selectAll.indeterminate = selectedCount > 0 && !allSelected;
+  selectAll.disabled = state.builder.responses.loading || !allKeys.length;
+  selectAll.addEventListener("change", event => {
+    toggleAllResponsesSelection(event.target.checked);
+    renderBuilder();
+  });
+  selectHeader.appendChild(selectAll);
+  headRow.appendChild(selectHeader);
+
   state.builder.responses.headers.forEach(header => {
     const th = document.createElement("th");
     th.textContent = text(String(header));
     headRow.appendChild(th);
   });
+  const actionsHeader = document.createElement("th");
+  actionsHeader.textContent = "\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044f";
+  headRow.appendChild(actionsHeader);
   thead.appendChild(headRow);
   table.appendChild(thead);
 
   const tbody = document.createElement("tbody");
-  state.builder.responses.rows.forEach(row => {
+  state.builder.responses.rows.forEach((row, index) => {
     const tr = document.createElement("tr");
+    const submissionKey = cleanString(state.builder.responses.records[index]?.submissionKey || "");
+
+    const selectTd = document.createElement("td");
+    const selectRow = document.createElement("input");
+    selectRow.type = "checkbox";
+    selectRow.checked = state.builder.responses.selectedKeys.includes(submissionKey);
+    selectRow.disabled = state.builder.responses.loading || !submissionKey;
+    selectRow.addEventListener("change", event => {
+      toggleResponseSelection(submissionKey, event.target.checked);
+      renderBuilder();
+    });
+    selectTd.appendChild(selectRow);
+    tr.appendChild(selectTd);
+
     row.forEach(cell => {
       const td = document.createElement("td");
       td.textContent = text(String(cell ?? ""));
       tr.appendChild(td);
     });
+    const actionTd = document.createElement("td");
+    const removeBtn = document.createElement("button");
+    removeBtn.type = "button";
+    removeBtn.className = "button-secondary builder-row-delete";
+    removeBtn.textContent = "\u0423\u0434\u0430\u043b\u0438\u0442\u044c";
+    removeBtn.disabled = state.builder.responses.loading || !submissionKey;
+    removeBtn.addEventListener("click", () => {
+      if (window.confirm("\u0423\u0434\u0430\u043b\u0438\u0442\u044c \u044d\u0442\u043e\u0442 \u043e\u0442\u0432\u0435\u0442? \u042d\u0442\u043e \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0435 \u043d\u0435\u043b\u044c\u0437\u044f \u043e\u0442\u043c\u0435\u043d\u0438\u0442\u044c.")) {
+        deleteResponseRow(submissionKey);
+      }
+    });
+    actionTd.appendChild(removeBtn);
+    tr.appendChild(actionTd);
     tbody.appendChild(tr);
   });
   table.appendChild(tbody);
   wrap.appendChild(table);
   section.appendChild(wrap);
 
+  return section;
+}
+
+function renderPermissionsPanel() {
+  const section = document.createElement("section");
+  section.className = "builder-item builder-editor-card";
+  section.id = "builder-section-permissions";
+
+  const title = document.createElement("h4");
+  title.className = "builder-section-title";
+  title.textContent = "\u041f\u0440\u0430\u0432\u0430 \u0434\u043e\u0441\u0442\u0443\u043f\u0430";
+  section.appendChild(title);
+
+  const note = document.createElement("p");
+  note.className = "field-hint";
+  note.textContent = "\u0414\u0435\u043b\u0438\u0442\u0435\u0441\u044c \u0434\u043e\u0441\u0442\u0443\u043f\u043e\u043c \u043a \u043a\u043e\u043d\u0441\u0442\u0440\u0443\u043a\u0442\u043e\u0440\u0443 \u0438 \u043d\u0430\u0437\u043d\u0430\u0447\u0430\u0439\u0442\u0435 \u0443\u0440\u043e\u0432\u0435\u043d\u044c \u043f\u0440\u0430\u0432 \u0434\u043b\u044f \u043a\u0430\u0436\u0434\u043e\u0433\u043e \u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044f.";
+  section.appendChild(note);
+
+  const inviteRow = document.createElement("div");
+  inviteRow.className = "builder-row builder-row-3";
+  inviteRow.append(
+    createBuilderField("Email", createTextInput(state.builder.members.draftEmail || "", value => {
+      state.builder.members.draftEmail = value;
+    })),
+    createBuilderField("\u0420\u043e\u043b\u044c", createSelectInput(state.builder.members.draftRole || "editor", getAssignableRoleChoices(), value => {
+      state.builder.members.draftRole = value;
+    })),
+    createBuilderField("\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u0435", (() => {
+      const wrap = document.createElement("div");
+      wrap.className = "builder-inline-actions";
+      const inviteBtn = document.createElement("button");
+      inviteBtn.type = "button";
+      inviteBtn.className = "builder-primary-action";
+      inviteBtn.textContent = "\u0412\u044b\u0434\u0430\u0442\u044c \u0434\u043e\u0441\u0442\u0443\u043f";
+      inviteBtn.addEventListener("click", inviteBuilderMember);
+      wrap.appendChild(inviteBtn);
+      return wrap;
+    })())
+  );
+  section.appendChild(inviteRow);
+
+  if (state.builder.members.error) {
+    const error = document.createElement("p");
+    error.className = "error-text";
+    error.textContent = state.builder.members.error;
+    section.appendChild(error);
+  }
+
+  if (state.builder.members.loading) {
+    const loading = document.createElement("p");
+    loading.className = "field-hint";
+    loading.textContent = "\u0417\u0430\u0433\u0440\u0443\u0436\u0430\u0435\u043c \u043f\u0440\u0430\u0432\u0430...";
+    section.appendChild(loading);
+    return section;
+  }
+
+  const list = document.createElement("div");
+  list.className = "builder-forms-list";
+
+  if (!state.builder.members.items.length) {
+    const empty = document.createElement("p");
+    empty.className = "field-hint";
+    empty.textContent = "\u0423 \u044d\u0442\u043e\u0439 \u0444\u043e\u0440\u043c\u044b \u043f\u043e\u043a\u0430 \u043d\u0435\u0442 \u0434\u0440\u0443\u0433\u0438\u0445 \u0443\u0447\u0430\u0441\u0442\u043d\u0438\u043a\u043e\u0432.";
+    list.appendChild(empty);
+  } else {
+    state.builder.members.items.forEach(member => {
+      const card = document.createElement("div");
+      card.className = "builder-form-card";
+
+      const head = document.createElement("div");
+      head.className = "builder-form-card-head";
+
+      const info = document.createElement("div");
+      info.className = "builder-heading";
+
+      const memberTitle = document.createElement("h4");
+      memberTitle.className = "builder-form-card-title";
+      memberTitle.textContent = cleanString(member.email || member.userId || "\u0411\u0435\u0437 email");
+
+      const meta = document.createElement("div");
+      meta.className = "builder-form-card-meta";
+      meta.textContent = `user: ${cleanString(member.userId || "\u2014")}`;
+      info.append(memberTitle, meta);
+      head.appendChild(info);
+
+      const roleBadge = document.createElement("span");
+      roleBadge.className = `builder-role-badge builder-role-${cleanString(member.role || "viewer").toLowerCase()}`;
+      roleBadge.textContent = getRoleLabel(member.role);
+      head.appendChild(roleBadge);
+      card.appendChild(head);
+
+      const actions = document.createElement("div");
+      actions.className = "builder-form-card-actions";
+
+      const roleSelect = createSelectInput(cleanString(member.role || "viewer"), getAssignableRoleChoices(), value => {
+        updateBuilderMemberRole(member, value);
+      });
+      actions.appendChild(roleSelect);
+
+      const removeBtn = document.createElement("button");
+      removeBtn.type = "button";
+      removeBtn.className = "button-secondary";
+      removeBtn.textContent = "\u0423\u0431\u0440\u0430\u0442\u044c \u0434\u043e\u0441\u0442\u0443\u043f";
+      removeBtn.disabled = cleanString(member.role) === "owner";
+      removeBtn.addEventListener("click", () => {
+        removeBuilderMember(member);
+      });
+      actions.appendChild(removeBtn);
+
+      card.appendChild(actions);
+      list.appendChild(card);
+    });
+  }
+
+  section.appendChild(list);
   return section;
 }
 
@@ -3041,14 +4196,6 @@ function renderBuilderOutline() {
   ui.builderOutline.innerHTML = "";
 
   if (state.builder.activeTab !== "constructor") {
-    const info = document.createElement("div");
-    info.className = "builder-outline-note";
-    info.textContent = state.builder.activeTab === "theme"
-      ? "Цвета и визуальные настройки"
-      : state.builder.activeTab === "settings"
-        ? "Тексты и параметры формы"
-        : "Таблица ответов";
-    ui.builderOutline.appendChild(info);
     return;
   }
 
@@ -3058,7 +4205,7 @@ function renderBuilderOutline() {
   const topLink = document.createElement("button");
   topLink.type = "button";
   topLink.className = "builder-outline-link";
-  topLink.textContent = "Верх формы";
+  topLink.textContent = "\u0412\u0435\u0440\u0445 \u0444\u043e\u0440\u043c\u044b";
   topLink.addEventListener("click", () => {
     document.getElementById("builder-section-ui")?.scrollIntoView({ behavior: "smooth", block: "start" });
   });
@@ -3069,7 +4216,7 @@ function renderBuilderOutline() {
     const item = document.createElement("div");
     item.className = "builder-outline-item";
 
-    const handle = createDragHandle("Перетащить вопрос");
+    const handle = createDragHandle("\u041f\u0435\u0440\u0435\u0442\u0430\u0449\u0438\u0442\u044c \u0432\u043e\u043f\u0440\u043e\u0441");
     item.appendChild(handle);
 
     const link = document.createElement("button");
@@ -3084,8 +4231,8 @@ function renderBuilderOutline() {
     const removeBtn = document.createElement("button");
     removeBtn.type = "button";
     removeBtn.className = "builder-outline-remove";
-    removeBtn.textContent = "×";
-    removeBtn.title = "Удалить вопрос";
+    removeBtn.textContent = "x";
+    removeBtn.title = "\u0423\u0434\u0430\u043b\u0438\u0442\u044c \u0432\u043e\u043f\u0440\u043e\u0441";
     removeBtn.addEventListener("click", event => {
       event.stopPropagation();
       removeFieldAt(index);
@@ -3102,16 +4249,24 @@ function renderBuilder() {
     return;
   }
 
+  const hasActiveBuilderForm = hasSelectedBuilderForm();
+  if (ui.builderWorkspaceTitle) {
+    ui.builderWorkspaceTitle.textContent = hasActiveBuilderForm
+      ? text(state.builder.selectedFormTitle || state.builder.selectedFormSlug || "\u0424\u043e\u0440\u043c\u0430")
+      : "\u041c\u043e\u0438 \u0444\u043e\u0440\u043c\u044b";
+  }
   const isConstructorTab = state.builder.activeTab === "constructor";
-  const isWideEditorTab = state.builder.activeTab === "theme" || state.builder.activeTab === "settings";
-  const isSettingsTab = state.builder.activeTab === "settings";
+  const isResponsesTab = hasActiveBuilderForm && state.builder.activeTab === "responses";
+  const isPermissionsTab = hasActiveBuilderForm && state.builder.activeTab === "permissions";
+  const isWideEditorTab = !hasActiveBuilderForm || (hasActiveBuilderForm && (state.builder.activeTab === "theme" || state.builder.activeTab === "settings" || state.builder.activeTab === "responses" || state.builder.activeTab === "permissions"));
+  const isSettingsTab = hasActiveBuilderForm && state.builder.activeTab === "settings";
   if (ui.addTopFieldBtn) {
-    ui.addTopFieldBtn.disabled = !isConstructorTab;
-    ui.addTopFieldBtn.classList.toggle("hidden-text", !isConstructorTab);
+    ui.addTopFieldBtn.disabled = !hasActiveBuilderForm || !isConstructorTab;
+    ui.addTopFieldBtn.classList.toggle("hidden-text", !hasActiveBuilderForm || !isConstructorTab);
   }
   if (ui.addFieldFromSidebarBtn) {
-    ui.addFieldFromSidebarBtn.disabled = !isConstructorTab;
-    ui.addFieldFromSidebarBtn.classList.toggle("hidden-text", !isConstructorTab);
+    ui.addFieldFromSidebarBtn.disabled = !hasActiveBuilderForm || !isConstructorTab;
+    ui.addFieldFromSidebarBtn.classList.toggle("hidden-text", !hasActiveBuilderForm || !isConstructorTab);
   }
   if (ui.resetSchemaBtn) {
     ui.resetSchemaBtn.classList.toggle("hidden-text", !isSettingsTab);
@@ -3121,24 +4276,45 @@ function renderBuilder() {
   }
   if (ui.builderActions) {
     ui.builderActions.classList.toggle("hidden-text", !isSettingsTab);
+    ui.builderActions.hidden = !isSettingsTab;
   }
   if (ui.builderSidebar) {
-    ui.builderSidebar.classList.toggle("hidden-text", !isConstructorTab);
+    ui.builderSidebar.classList.toggle("hidden-text", !hasActiveBuilderForm || !isConstructorTab);
+    ui.builderSidebar.hidden = !hasActiveBuilderForm || !isConstructorTab;
+    ui.builderSidebar.style.display = !hasActiveBuilderForm || !isConstructorTab ? "none" : "";
   }
   if (ui.saveSchemaBtn) {
-    ui.saveSchemaBtn.classList.toggle("hidden-text", state.builder.activeTab === "responses");
+    ui.saveSchemaBtn.classList.toggle("hidden-text", !hasActiveBuilderForm || isResponsesTab || isPermissionsTab);
   }
+  if (ui.builderFormsBtn) {
+    ui.builderFormsBtn.classList.toggle("hidden-text", !hasActiveBuilderForm);
+  }
+  if (ui.builderOpenFormBtn) {
+    ui.builderOpenFormBtn.classList.toggle("hidden-text", !hasActiveBuilderForm);
+    ui.builderOpenFormBtn.href = hasActiveBuilderForm ? getPublicFormHref(state.builder.selectedFormSlug) : "#";
+  }
+  ui.builderTabs.forEach(tab => {
+    tab.classList.toggle("hidden-text", !hasActiveBuilderForm);
+  });
 
   ui.builderContent.classList.toggle("builder-content-wide", isWideEditorTab);
-  ui.builderContent.classList.toggle("builder-content-constructor", isConstructorTab);
+  ui.builderContent.classList.toggle("builder-content-constructor", hasActiveBuilderForm && isConstructorTab);
   ui.builderLayout?.classList.toggle("builder-layout-focus", isWideEditorTab);
-  ui.builderSidebar?.classList.toggle("hidden-text", isWideEditorTab);
+  ui.builderSidebar?.classList.toggle("hidden-text", !hasActiveBuilderForm || isWideEditorTab);
+  if (ui.builderSidebar) {
+    ui.builderSidebar.hidden = !hasActiveBuilderForm || !isConstructorTab;
+    ui.builderSidebar.style.display = !hasActiveBuilderForm || !isConstructorTab ? "none" : "";
+  }
 
   ui.builderContent.innerHTML = "";
-  if (state.builder.activeTab === "theme") {
+  if (!hasActiveBuilderForm) {
+    ui.builderContent.appendChild(renderBuilderFormsHub());
+  } else if (state.builder.activeTab === "theme") {
     ui.builderContent.appendChild(renderThemeEditor());
   } else if (state.builder.activeTab === "settings") {
     ui.builderContent.appendChild(renderUiConfigEditor());
+  } else if (state.builder.activeTab === "permissions") {
+    ui.builderContent.appendChild(renderPermissionsPanel());
   } else if (state.builder.activeTab === "responses") {
     ui.builderContent.appendChild(renderResponsesPanel());
   } else {
@@ -3151,7 +4327,7 @@ function renderBuilder() {
 
     const addBtn = document.createElement("button");
     addBtn.type = "button";
-    addBtn.textContent = "Добавить вопрос";
+    addBtn.textContent = "\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u0432\u043e\u043f\u0440\u043e\u0441";
     addBtn.addEventListener("click", () => {
       insertFieldAt(state.schema.length);
     });
@@ -3159,7 +4335,7 @@ function renderBuilder() {
     const saveBtn = document.createElement("button");
     saveBtn.type = "button";
     saveBtn.className = "builder-primary-action";
-    saveBtn.textContent = "Сохранить";
+    saveBtn.textContent = "\u0421\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c";
     saveBtn.addEventListener("click", saveSchemaNow);
 
     footerActions.append(addBtn, saveBtn);
@@ -3174,12 +4350,19 @@ function renderBuilder() {
 
 function closeBuilder() {
   if (isBuilderPage()) {
+    if (hasSupabaseAuthConfig()) {
+      getSupabaseBrowserClient()?.auth.signOut().catch(() => {});
+    }
     setAdminToken("");
+    setSupabaseSession(null);
     if (ui.builderWorkspace) {
       ui.builderWorkspace.classList.add("hidden-text");
     }
     if (ui.builderGate) {
       ui.builderGate.classList.remove("hidden-text");
+    }
+    if (ui.builderEmail) {
+      ui.builderEmail.value = "";
     }
     if (ui.builderPasscode) {
       ui.builderPasscode.value = "";
@@ -3201,12 +4384,57 @@ function unlockBuilderWorkspace() {
   renderBuilder();
 }
 
-async function setBuilderTab(tabName) {
-  state.builder.activeTab = tabName;
-  if (tabName === "responses") {
-    await loadResponsesPreview();
+function applyBuilderAuthMode() {
+  const supabaseMode = hasSupabaseAuthConfig();
+  ui.builderEmail?.classList.toggle("hidden-text", !supabaseMode);
+  ui.builderForgotPasswordBtn?.classList.toggle("hidden-text", !supabaseMode);
+
+  if (ui.unlockBuilderBtn) {
+    ui.unlockBuilderBtn.textContent = supabaseMode ? "\u0412\u043e\u0439\u0442\u0438" : "\u0412\u043e\u0439\u0442\u0438";
   }
-  renderBuilder();
+
+  if (ui.builderPasscode) {
+    ui.builderPasscode.placeholder = supabaseMode ? "\u041f\u0430\u0440\u043e\u043b\u044c" : "\u041a\u043e\u0434 \u0434\u043e\u0441\u0442\u0443\u043f\u0430";
+  }
+
+  if (ui.builderForgotPasswordBtn) {
+    ui.builderForgotPasswordBtn.textContent = "\u0412\u043e\u0441\u0441\u0442\u0430\u043d\u043e\u0432\u0438\u0442\u044c \u043f\u0430\u0440\u043e\u043b\u044c";
+  }
+
+  if (ui.builderAuthModeLabel) {
+    ui.builderAuthModeLabel.textContent = supabaseMode
+      ? "\u0412\u0445\u043e\u0434 \u0447\u0435\u0440\u0435\u0437 Supabase Auth: email \u0438 \u043f\u0430\u0440\u043e\u043b\u044c."
+      : "\u041b\u043e\u043a\u0430\u043b\u044c\u043d\u044b\u0439 \u0440\u0435\u0436\u0438\u043c: \u0432\u0445\u043e\u0434 \u043f\u043e \u043a\u043e\u0434\u0443 \u0434\u043e\u0441\u0442\u0443\u043f\u0430.";
+    ui.builderAuthModeLabel.classList.remove("hidden-text");
+  }
+}
+
+async function setBuilderTab(tabName) {
+  await runWithLoading("\u041e\u0442\u043a\u0440\u044b\u0432\u0430\u0435\u043c \u0432\u043a\u043b\u0430\u0434\u043a\u0443...", async () => {
+    await new Promise(resolve => window.requestAnimationFrame(() => resolve()));
+    state.builder.activeTab = tabName;
+    renderBuilder();
+    if (tabName === "responses") {
+      await loadResponsesPreview();
+    } else if (tabName === "permissions") {
+      await loadBuilderMembers();
+    }
+    renderBuilder();
+  });
+}
+
+function nextFrame() {
+  return new Promise(resolve => window.requestAnimationFrame(() => resolve()));
+}
+
+async function paintBeforeHeavyWork(message, callback) {
+  showLoadingOverlay(message);
+  try {
+    await nextFrame();
+    return await callback();
+  } finally {
+    hideLoadingOverlay();
+  }
 }
 
 function createExcelHtmlTable(headers, rows) {
@@ -3258,17 +4486,518 @@ function exportResponsesToExcel() {
   URL.revokeObjectURL(url);
 }
 
+async function loadBuilderForms() {
+  return runWithLoading("\u0417\u0430\u0433\u0440\u0443\u0436\u0430\u0435\u043c \u0444\u043e\u0440\u043c\u044b...", async () => {
+    if (!window.FormApi || typeof FormApi.listForms !== "function" || !hasBuilderAuthorization()) {
+      state.builder.forms.loading = false;
+      renderBuilder();
+      return;
+    }
+
+    state.builder.forms.loading = true;
+    state.builder.forms.error = "";
+    renderBuilder();
+
+    try {
+      const result = await FormApi.listForms(CONFIG, getBuilderBearerToken());
+      state.builder.forms.items = Array.isArray(result.forms) ? result.forms : [];
+    } catch (error) {
+      state.builder.forms.items = [];
+      state.builder.forms.error = cleanString(error?.message || "\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u0444\u043e\u0440\u043c\u044b.");
+    } finally {
+      state.builder.forms.loading = false;
+      renderBuilder();
+    }
+  });
+}
+
+async function openBuilderForm(slug) {
+  return runWithLoading("\u041e\u0442\u043a\u0440\u044b\u0432\u0430\u0435\u043c \u0444\u043e\u0440\u043c\u0443...", async () => {
+    const normalized = cleanString(slug || "");
+    if (!normalized) {
+      return;
+    }
+
+    const selected = state.builder.forms.items.find(item => cleanString(item.slug) === normalized);
+    if (selected) {
+      state.builder.selectedFormTitle = cleanString(selected.title || "");
+    }
+    setSelectedBuilderFormSlug(normalized);
+    state.builder.responses.headers = [];
+    state.builder.responses.rows = [];
+    state.builder.responses.records = [];
+    await loadRemoteSchema();
+    renderBuilder();
+  });
+}
+
+function closeActiveBuilderForm() {
+  setSelectedBuilderFormSlug("");
+  state.builder.selectedFormTitle = "";
+  state.builder.responses.headers = [];
+  state.builder.responses.rows = [];
+  state.builder.responses.records = [];
+  state.builder.members.items = [];
+  state.builder.members.error = "";
+  state.builder.forms.editingSlugFormId = "";
+  state.builder.forms.editingSlugValue = "";
+  state.builder.activeTab = "constructor";
+  renderBuilder();
+}
+
+async function updateBuilderFormMeta(formId, payload) {
+  if (!window.FormApi || typeof FormApi.updateForm !== "function" || !hasBuilderAuthorization()) {
+    return;
+  }
+
+  const current = state.builder.forms.items.find(item => cleanString(item.id) === cleanString(formId));
+  const updates = {};
+  if (payload.title !== undefined) {
+    updates.title = payload.title ?? current?.title ?? "";
+  }
+  if (payload.slug !== undefined) {
+    updates.slug = payload.slug ?? current?.slug ?? "";
+  }
+  if (payload.schema !== undefined) {
+    updates.schema = payload.schema;
+  }
+  if (payload.uiConfig !== undefined) {
+    updates.uiConfig = payload.uiConfig;
+  }
+  const result = await FormApi.updateForm(CONFIG, formId, updates, getBuilderBearerToken());
+
+  await loadBuilderForms();
+  if (result?.form?.slug && cleanString(current?.slug) === cleanString(state.builder.selectedFormSlug)) {
+    setSelectedBuilderFormMeta(result.form);
+  }
+  return result;
+}
+
+function startEditingFormSlug(form) {
+  state.builder.forms.editingSlugFormId = cleanString(form?.id || "");
+  state.builder.forms.editingSlugValue = cleanString(form?.slug || "");
+  renderBuilder();
+}
+
+function stopEditingFormSlug() {
+  state.builder.forms.editingSlugFormId = "";
+  state.builder.forms.editingSlugValue = "";
+  renderBuilder();
+}
+
+async function submitEditingFormSlug(form) {
+  const formId = cleanString(form?.id || "");
+  const nextSlug = slugifyFormValue(state.builder.forms.editingSlugValue || "");
+  if (!formId || !nextSlug) {
+    ui.submitStatus.textContent = "\u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u043a\u043e\u0440\u0440\u0435\u043a\u0442\u043d\u044b\u0439 \u0430\u0434\u0440\u0435\u0441 \u0444\u043e\u0440\u043c\u044b.";
+    return;
+  }
+
+  try {
+    ui.submitStatus.textContent = "\u0421\u043e\u0445\u0440\u0430\u043d\u044f\u0435\u043c \u0430\u0434\u0440\u0435\u0441 \u0444\u043e\u0440\u043c\u044b...";
+    const result = await updateBuilderFormMeta(formId, { slug: nextSlug });
+    state.builder.forms.editingSlugFormId = "";
+    state.builder.forms.editingSlugValue = "";
+    ui.submitStatus.textContent = "\u0410\u0434\u0440\u0435\u0441 \u0444\u043e\u0440\u043c\u044b \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d.";
+    if (cleanString(form.slug) === cleanString(state.builder.selectedFormSlug) && result?.form?.slug) {
+      setSelectedBuilderFormMeta(result.form);
+    }
+    renderBuilder();
+  } catch (error) {
+    ui.submitStatus.textContent = `\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u043e\u0431\u043d\u043e\u0432\u0438\u0442\u044c \u0430\u0434\u0440\u0435\u0441 \u0444\u043e\u0440\u043c\u044b: ${cleanString(error?.message || "\u043e\u0448\u0438\u0431\u043a\u0430")}`;
+  }
+}
+
+async function createBuilderForm() {
+  if (!window.FormApi || typeof FormApi.createForm !== "function" || !hasBuilderAuthorization()) {
+    return;
+  }
+
+  const title = cleanString(state.builder.forms.draft.title);
+  if (!title) {
+    ui.submitStatus.textContent = "\u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u043d\u0430\u0437\u0432\u0430\u043d\u0438\u0435 \u043d\u043e\u0432\u043e\u0439 \u0444\u043e\u0440\u043c\u044b.";
+    return;
+  }
+
+  const slug = slugifyFormValue(state.builder.forms.draft.slug || title);
+  if (!slug) {
+    ui.submitStatus.textContent = "\u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u043a\u043e\u0440\u0440\u0435\u043a\u0442\u043d\u044b\u0439 \u0430\u0434\u0440\u0435\u0441 \u0444\u043e\u0440\u043c\u044b.";
+    return;
+  }
+
+  try {
+    ui.submitStatus.textContent = "\u0421\u043e\u0437\u0434\u0430\u0435\u043c \u0444\u043e\u0440\u043c\u0443...";
+    const result = await FormApi.createForm(CONFIG, {
+      title,
+      slug,
+      schema: [],
+      uiConfig: {}
+    }, getBuilderBearerToken());
+
+    state.builder.forms.draft.title = "";
+    state.builder.forms.draft.slug = "";
+    state.builder.forms.showCreatePanel = false;
+    await loadBuilderForms();
+    ui.submitStatus.textContent = "\u0424\u043e\u0440\u043c\u0430 \u0441\u043e\u0437\u0434\u0430\u043d\u0430.";
+    await openBuilderForm(result?.form?.slug || slug);
+  } catch (error) {
+    ui.submitStatus.textContent = `\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0441\u043e\u0437\u0434\u0430\u0442\u044c \u0444\u043e\u0440\u043c\u0443: ${cleanString(error?.message || "\u043e\u0448\u0438\u0431\u043a\u0430")}`;
+    renderBuilder();
+  }
+}
+
+async function copyBuilderFormLink(slug) {
+  const href = getPublicFormHref(slug);
+
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(href);
+    } else {
+      const helper = document.createElement("textarea");
+      helper.value = href;
+      helper.setAttribute("readonly", "readonly");
+      helper.style.position = "absolute";
+      helper.style.left = "-9999px";
+      document.body.appendChild(helper);
+      helper.select();
+      document.execCommand("copy");
+      helper.remove();
+    }
+
+    ui.submitStatus.textContent = "\u041f\u0443\u0431\u043b\u0438\u0447\u043d\u0430\u044f \u0441\u0441\u044b\u043b\u043a\u0430 \u0441\u043a\u043e\u043f\u0438\u0440\u043e\u0432\u0430\u043d\u0430.";
+  } catch {
+    ui.submitStatus.textContent = "\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0441\u043a\u043e\u043f\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u0441\u0441\u044b\u043b\u043a\u0443. \u041e\u0442\u043a\u0440\u043e\u0439\u0442\u0435 \u0435\u0435 \u0432 \u043d\u043e\u0432\u043e\u0439 \u0432\u043a\u043b\u0430\u0434\u043a\u0435.";
+  }
+}
+
+function renderBuilderFormsHub() {
+  const section = document.createElement("section");
+  section.className = "builder-item builder-editor-card builder-forms-manager";
+
+  const title = document.createElement("h4");
+  title.className = "builder-section-title";
+  title.textContent = "\u041c\u043e\u0438 \u0444\u043e\u0440\u043c\u044b";
+  section.appendChild(title);
+
+  const note = document.createElement("p");
+  note.className = "field-hint";
+  note.textContent = "\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0444\u043e\u0440\u043c\u0443 \u0438\u0437 \u0441\u043f\u0438\u0441\u043a\u0430 \u0438\u043b\u0438 \u0441\u043e\u0437\u0434\u0430\u0439\u0442\u0435 \u043d\u043e\u0432\u0443\u044e \u043d\u0438\u0436\u0435. \u0423 \u043a\u0430\u0436\u0434\u043e\u0439 \u0444\u043e\u0440\u043c\u044b \u0435\u0441\u0442\u044c \u0431\u044b\u0441\u0442\u0440\u044b\u0435 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044f \u0434\u043b\u044f \u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u043e\u0432\u0430\u043d\u0438\u044f \u0438 \u043f\u0443\u0431\u043b\u0438\u043a\u0430\u0446\u0438\u0438.";
+  section.appendChild(note);
+
+  if (state.builder.forms.loading) {
+    const loading = document.createElement("p");
+    loading.className = "field-hint";
+    loading.textContent = "\u0417\u0430\u0433\u0440\u0443\u0436\u0430\u0435\u043c \u0444\u043e\u0440\u043c\u044b...";
+    section.appendChild(loading);
+    return section;
+  }
+
+  if (state.builder.forms.error) {
+    const error = document.createElement("p");
+    error.className = "error-text";
+    error.textContent = state.builder.forms.error;
+    section.appendChild(error);
+  }
+
+  const list = document.createElement("div");
+  list.className = "builder-forms-list";
+
+  if (!state.builder.forms.items.length) {
+    const empty = document.createElement("p");
+    empty.className = "field-hint";
+    empty.textContent = "\u041f\u043e\u043a\u0430 \u043d\u0435\u0442 \u043d\u0438 \u043e\u0434\u043d\u043e\u0439 \u0444\u043e\u0440\u043c\u044b. \u0421\u043e\u0437\u0434\u0430\u0439\u0442\u0435 \u043f\u0435\u0440\u0432\u0443\u044e \u0447\u0435\u0440\u0435\u0437 \u043a\u043d\u043e\u043f\u043a\u0443 \u043d\u0438\u0436\u0435.";
+    list.appendChild(empty);
+  } else {
+    state.builder.forms.items.forEach(form => {
+      const card = document.createElement("div");
+      card.className = "builder-form-card";
+
+      const heading = document.createElement("div");
+      heading.className = "builder-form-card-head";
+
+      const info = document.createElement("div");
+      info.className = "builder-heading";
+
+      const formTitle = document.createElement("h4");
+      formTitle.className = "builder-form-card-title";
+      formTitle.textContent = text(form.title || form.slug || "\u0411\u0435\u0437 \u043d\u0430\u0437\u0432\u0430\u043d\u0438\u044f");
+
+      const meta = document.createElement("div");
+      meta.className = "builder-form-card-meta";
+      meta.textContent = `\u0430\u0434\u0440\u0435\u0441: ${form.slug || "\u2014"} \u2022 \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u0430: ${formatBuilderDate(form.updatedAt)}`;
+
+      info.append(formTitle, meta);
+      heading.appendChild(info);
+
+      const roleBadge = document.createElement("span");
+      roleBadge.className = `builder-role-badge builder-role-${cleanString(form.role || "viewer").toLowerCase()}`;
+      roleBadge.textContent = getRoleLabel(form.role);
+      heading.appendChild(roleBadge);
+      card.appendChild(heading);
+
+      const row = document.createElement("div");
+      row.className = "builder-form-card-actions";
+
+      const constructorBtn = document.createElement("button");
+      constructorBtn.type = "button";
+      constructorBtn.className = "builder-primary-action";
+      constructorBtn.textContent = "\u041a\u043e\u043d\u0441\u0442\u0440\u0443\u043a\u0442\u043e\u0440";
+      constructorBtn.addEventListener("click", () => openBuilderForm(form.slug));
+      row.appendChild(constructorBtn);
+
+      const settingsBtn = document.createElement("button");
+      settingsBtn.type = "button";
+      settingsBtn.className = "button-secondary";
+      settingsBtn.textContent = "\u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438";
+      settingsBtn.addEventListener("click", async () => {
+        await openBuilderForm(form.slug);
+        await setBuilderTab("settings");
+      });
+      row.appendChild(settingsBtn);
+
+      const copyBtn = document.createElement("button");
+      copyBtn.type = "button";
+      copyBtn.className = "button-secondary";
+      copyBtn.textContent = "\u041a\u043e\u043f\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u0441\u0441\u044b\u043b\u043a\u0443";
+      copyBtn.addEventListener("click", () => {
+        copyBuilderFormLink(form.slug);
+      });
+      row.appendChild(copyBtn);
+
+      const publicLink = document.createElement("a");
+      publicLink.className = "builder-link builder-form-card-link";
+      publicLink.href = getPublicFormHref(form.slug);
+      publicLink.target = "_blank";
+      publicLink.rel = "noreferrer";
+      publicLink.textContent = "\u041e\u0442\u043a\u0440\u044b\u0442\u044c \u043f\u043e \u0441\u0441\u044b\u043b\u043a\u0435";
+      row.appendChild(publicLink);
+
+      const deleteBtn = document.createElement("button");
+      deleteBtn.type = "button";
+      deleteBtn.className = "button-secondary";
+      deleteBtn.textContent = "\u0423\u0434\u0430\u043b\u0438\u0442\u044c";
+      deleteBtn.addEventListener("click", () => {
+        deleteBuilderForm(form);
+      });
+      row.appendChild(deleteBtn);
+
+      card.appendChild(row);
+
+      const slugTools = document.createElement("div");
+      slugTools.className = "builder-form-slug-tools";
+
+      if (cleanString(state.builder.forms.editingSlugFormId) === cleanString(form.id)) {
+        const slugInput = createTextInput(state.builder.forms.editingSlugValue || "", value => {
+          state.builder.forms.editingSlugValue = slugifyFormValue(value);
+        });
+        slugInput.placeholder = "new-form-address";
+        slugTools.appendChild(createBuilderField("\u0410\u0434\u0440\u0435\u0441 \u0444\u043e\u0440\u043c\u044b", slugInput));
+
+        const slugActions = document.createElement("div");
+        slugActions.className = "builder-form-create-actions";
+
+        const saveSlugBtn = document.createElement("button");
+        saveSlugBtn.type = "button";
+        saveSlugBtn.className = "builder-primary-action";
+        saveSlugBtn.textContent = "\u0421\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c \u0430\u0434\u0440\u0435\u0441";
+        saveSlugBtn.addEventListener("click", () => submitEditingFormSlug(form));
+
+        const cancelSlugBtn = document.createElement("button");
+        cancelSlugBtn.type = "button";
+        cancelSlugBtn.className = "button-secondary";
+        cancelSlugBtn.textContent = "\u041e\u0442\u043c\u0435\u043d\u0430";
+        cancelSlugBtn.addEventListener("click", stopEditingFormSlug);
+
+        slugActions.append(saveSlugBtn, cancelSlugBtn);
+        slugTools.appendChild(slugActions);
+      } else {
+        const editSlugBtn = document.createElement("button");
+        editSlugBtn.type = "button";
+        editSlugBtn.className = "button-secondary";
+        editSlugBtn.textContent = "\u0418\u0437\u043c\u0435\u043d\u0438\u0442\u044c \u0430\u0434\u0440\u0435\u0441";
+        editSlugBtn.addEventListener("click", () => startEditingFormSlug(form));
+        slugTools.appendChild(editSlugBtn);
+      }
+
+      card.appendChild(slugTools);
+      list.appendChild(card);
+    });
+  }
+
+  section.appendChild(list);
+
+  const footer = document.createElement("div");
+  footer.className = "builder-forms-footer";
+
+  const toggleBtn = document.createElement("button");
+  toggleBtn.type = "button";
+  toggleBtn.className = "builder-primary-action";
+  toggleBtn.textContent = state.builder.forms.showCreatePanel ? "\u0421\u0432\u0435\u0440\u043d\u0443\u0442\u044c" : "\u041d\u043e\u0432\u0430\u044f \u0444\u043e\u0440\u043c\u0430";
+  toggleBtn.addEventListener("click", () => {
+    state.builder.forms.showCreatePanel = !state.builder.forms.showCreatePanel;
+    renderBuilder();
+  });
+  footer.appendChild(toggleBtn);
+
+  if (state.builder.forms.showCreatePanel) {
+    const createPanel = document.createElement("div");
+    createPanel.className = "builder-form-create-panel";
+
+    const createTitle = document.createElement("h5");
+    createTitle.className = "builder-form-create-title";
+    createTitle.textContent = "\u041d\u043e\u0432\u0430\u044f \u0444\u043e\u0440\u043c\u0430";
+    createPanel.appendChild(createTitle);
+
+    const createHint = document.createElement("p");
+    createHint.className = "field-hint";
+    createHint.textContent = "\u0417\u0430\u0434\u0430\u0439\u0442\u0435 \u043d\u0430\u0437\u0432\u0430\u043d\u0438\u0435 \u0438 \u043a\u043e\u0440\u043e\u0442\u043a\u0438\u0439 \u0430\u0434\u0440\u0435\u0441. \u041e\u043d \u0438\u0441\u043f\u043e\u043b\u044c\u0437\u0443\u0435\u0442\u0441\u044f \u0432 \u043f\u0443\u0431\u043b\u0438\u0447\u043d\u043e\u0439 \u0441\u0441\u044b\u043b\u043a\u0435 \u0444\u043e\u0440\u043c\u044b.";
+    createPanel.appendChild(createHint);
+
+    const formRow = document.createElement("div");
+    formRow.className = "builder-row builder-row-2";
+    formRow.append(
+      createBuilderField("\u041d\u0430\u0437\u0432\u0430\u043d\u0438\u0435 \u0444\u043e\u0440\u043c\u044b", createTextInput(state.builder.forms.draft.title || "", value => {
+        const previousTitleSlug = slugifyFormValue(state.builder.forms.draft.title);
+        state.builder.forms.draft.title = value;
+        if (!state.builder.forms.draft.slug || slugifyFormValue(state.builder.forms.draft.slug) === previousTitleSlug) {
+          state.builder.forms.draft.slug = slugifyFormValue(value);
+        }
+      })),
+      createBuilderField("\u0410\u0434\u0440\u0435\u0441", createTextInput(state.builder.forms.draft.slug || "", value => {
+        state.builder.forms.draft.slug = slugifyFormValue(value);
+      }))
+    );
+    createPanel.appendChild(formRow);
+
+    const createActions = document.createElement("div");
+    createActions.className = "builder-form-create-actions";
+
+    const submitBtn = document.createElement("button");
+    submitBtn.type = "button";
+    submitBtn.className = "builder-primary-action";
+    submitBtn.textContent = "\u0421\u043e\u0437\u0434\u0430\u0442\u044c \u0444\u043e\u0440\u043c\u0443";
+    submitBtn.addEventListener("click", createBuilderForm);
+
+    const cancelBtn = document.createElement("button");
+    cancelBtn.type = "button";
+    cancelBtn.className = "button-secondary";
+    cancelBtn.textContent = "\u041e\u0442\u043c\u0435\u043d\u0430";
+    cancelBtn.addEventListener("click", () => {
+      state.builder.forms.showCreatePanel = false;
+      state.builder.forms.draft.title = "";
+      state.builder.forms.draft.slug = "";
+      renderBuilder();
+    });
+
+    createActions.append(submitBtn, cancelBtn);
+    createPanel.appendChild(createActions);
+    footer.appendChild(createPanel);
+  }
+
+  section.appendChild(footer);
+  return section;
+}
+
 async function handleBuilderUnlock() {
+  showLoadingOverlay("\u0412\u0445\u043e\u0434\u0438\u043c \u0432 \u043a\u043e\u043d\u0441\u0442\u0440\u0443\u043a\u0442\u043e\u0440...");
+  if (hasSupabaseAuthConfig()) {
+    const email = ui.builderEmail ? ui.builderEmail.value.trim() : "";
+    const password = ui.builderPasscode ? ui.builderPasscode.value : "";
+
+    try {
+      const client = getSupabaseBrowserClient();
+      const result = await client.auth.signInWithPassword({
+        email,
+        password
+      });
+
+      if (result.error) {
+        throw result.error;
+      }
+
+      setSupabaseSession(result.data.session || null);
+      await loadBuilderForms();
+      setSelectedBuilderFormSlug("");
+      unlockBuilderWorkspace();
+    } catch (error) {
+      if (ui.builderAuthError) {
+        ui.builderAuthError.textContent = cleanString(error?.message || "\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0432\u043e\u0439\u0442\u0438 \u0447\u0435\u0440\u0435\u0437 Supabase Auth.");
+        ui.builderAuthError.classList.remove("hidden-text");
+      }
+    } finally {
+      resetLoadingOverlay();
+    }
+    return;
+  }
+
   const passcode = ui.builderPasscode ? ui.builderPasscode.value.trim() : "";
 
 
   try {
     const result = await FormApi.loginAdmin(CONFIG, passcode);
     setAdminToken(result.adminToken);
+    await loadBuilderForms();
+    setSelectedBuilderFormSlug("");
     unlockBuilderWorkspace();
   } catch (error) {
     if (ui.builderAuthError) {
-      ui.builderAuthError.textContent = "Неверный код доступа или web app не принял авторизацию.";
+      ui.builderAuthError.textContent = "\u0412\u043e\u0439\u0434\u0438\u0442\u0435 \u0447\u0435\u0440\u0435\u0437 Supabase Auth \u0438\u043b\u0438 \u0432\u043a\u043b\u044e\u0447\u0438\u0442\u0435 web app \u0434\u043b\u044f \u0432\u0445\u043e\u0434\u0430 \u043f\u043e \u043f\u0430\u0440\u043e\u043b\u044e \u0430\u0434\u043c\u0438\u043d\u0430.";
+      ui.builderAuthError.classList.remove("hidden-text");
+    }
+  } finally {
+    resetLoadingOverlay();
+  }
+}
+
+async function deleteBuilderForm(form) {
+  const formId = cleanString(form?.id || "");
+  const formTitle = cleanString(form?.title || form?.slug || "\u044d\u0442\u0443 \u0444\u043e\u0440\u043c\u0443");
+  if (!formId) {
+    return;
+  }
+
+  if (!window.confirm(`\u0423\u0434\u0430\u043b\u0438\u0442\u044c \u0444\u043e\u0440\u043c\u0443 \"${formTitle}\"? \u0412\u043c\u0435\u0441\u0442\u0435 \u0441 \u043d\u0435\u0439 \u0443\u0434\u0430\u043b\u044f\u0442\u0441\u044f \u0438 \u043e\u0442\u0432\u0435\u0442\u044b \u044d\u0442\u043e\u0439 \u0444\u043e\u0440\u043c\u044b.`)) {
+    return;
+  }
+
+  try {
+    ui.submitStatus.textContent = "\u0423\u0434\u0430\u043b\u044f\u0435\u043c \u0444\u043e\u0440\u043c\u0443...";
+    await FormApi.deleteForm(CONFIG, formId, getBuilderBearerToken());
+    if (cleanString(state.builder.selectedFormSlug) === cleanString(form.slug)) {
+      closeActiveBuilderForm();
+    }
+    await loadBuilderForms();
+    ui.submitStatus.textContent = "\u0424\u043e\u0440\u043c\u0430 \u0443\u0434\u0430\u043b\u0435\u043d\u0430.";
+  } catch (error) {
+    ui.submitStatus.textContent = `\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0443\u0434\u0430\u043b\u0438\u0442\u044c \u0444\u043e\u0440\u043c\u0443: ${cleanString(error?.message || "\u043e\u0448\u0438\u0431\u043a\u0430")}`;
+  }
+}
+
+async function handleForgotPassword() {
+  const email = ui.builderEmail ? ui.builderEmail.value.trim() : "";
+  if (!hasSupabaseAuthConfig() || !email) {
+    if (ui.builderAuthError) {
+      ui.builderAuthError.textContent = "\u0412\u0432\u0435\u0434\u0438\u0442\u0435 email, \u0447\u0442\u043e\u0431\u044b \u043f\u043e\u043b\u0443\u0447\u0438\u0442\u044c \u0441\u0441\u044b\u043b\u043a\u0443 \u0434\u043b\u044f \u0432\u043e\u0441\u0441\u0442\u0430\u043d\u043e\u0432\u043b\u0435\u043d\u0438\u044f.";
+      ui.builderAuthError.classList.remove("hidden-text");
+    }
+    return;
+  }
+
+  try {
+    const client = getSupabaseBrowserClient();
+    const redirectTo = `${window.location.origin}${window.location.pathname}`;
+    const result = await client.auth.resetPasswordForEmail(email, { redirectTo });
+    if (result.error) {
+      throw result.error;
+    }
+
+    if (ui.builderAuthError) {
+      ui.builderAuthError.textContent = "\u0421\u0441\u044b\u043b\u043a\u0430 \u0434\u043b\u044f \u0432\u043e\u0441\u0441\u0442\u0430\u043d\u043e\u0432\u043b\u0435\u043d\u0438\u044f \u043e\u0442\u043f\u0440\u0430\u0432\u043b\u0435\u043d\u0430 \u043d\u0430 email.";
+      ui.builderAuthError.classList.remove("hidden-text");
+    }
+  } catch (error) {
+    if (ui.builderAuthError) {
+      ui.builderAuthError.textContent = cleanString(error?.message || "\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u043e\u0442\u043f\u0440\u0430\u0432\u0438\u0442\u044c \u043f\u0438\u0441\u044c\u043c\u043e \u0434\u043b\u044f \u0432\u043e\u0441\u0441\u0442\u0430\u043d\u043e\u0432\u043b\u0435\u043d\u0438\u044f.");
       ui.builderAuthError.classList.remove("hidden-text");
     }
   }
@@ -3276,54 +5005,83 @@ async function handleBuilderUnlock() {
 
 async function initializeCommonData() {
   hydrateSchema();
-  await loadRemoteSchema().catch(error => console.error(error));
+  if (!isBuilderPage()) {
+    await loadRemoteSchema().catch(error => console.error(error));
+  }
   initializeDefaults(getFields());
 }
 
 async function initializeFormPage() {
-  ui.participantsCount.textContent = getParticipantCount();
-  hydrateDraft();
-  initializeDefaults(getFields());
-  bindProfileInputs();
-
   try {
-    await loadStats();
-  } catch (error) {
-    console.error(error);
+    await runWithLoading("\u0413\u043e\u0442\u043e\u0432\u0438\u043c \u0444\u043e\u0440\u043c\u0443...", async () => {
+      ui.participantsCount.textContent = getDisplayParticipantCount();
+      hydrateDraft();
+      initializeDefaults(getFields());
+    bindProfileInputs();
+
+    try {
+      await loadStats();
+    } catch (error) {
+      console.error(error);
+    }
+
+    renderAll();
+    refreshUI(false);
+
+    ui.detailsBtn.addEventListener("click", openDetails);
+    ui.saveBtn.addEventListener("click", submitForm);
+    ui.closeModal.addEventListener("click", closeDetails);
+    ui.confirmCancelBtn.addEventListener("click", closeConfirmModal);
+    ui.confirmSubmitBtn.addEventListener("click", confirmModalAction);
+    ui.detailsModal.addEventListener("click", event => {
+      if (event.target === ui.detailsModal) {
+        closeDetails();
+      }
+    });
+    ui.confirmModal.addEventListener("click", event => {
+      if (event.target === ui.confirmModal) {
+        closeConfirmModal();
+      }
+    });
+    ui.scrollTopBtn?.addEventListener("click", () => {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    });
+    window.addEventListener("scroll", updateScrollTopVisibility, { passive: true });
+    updateScrollTopVisibility();
+
+      saveDraft();
+    });
+  } finally {
+    resetLoadingOverlay();
   }
-
-  renderAll();
-  refreshUI(false);
-
-  ui.detailsBtn.addEventListener("click", openDetails);
-  ui.saveBtn.addEventListener("click", submitForm);
-  ui.closeModal.addEventListener("click", closeDetails);
-  ui.confirmCancelBtn.addEventListener("click", closeConfirmModal);
-  ui.confirmSubmitBtn.addEventListener("click", confirmModalAction);
-  ui.detailsModal.addEventListener("click", event => {
-    if (event.target === ui.detailsModal) {
-      closeDetails();
-    }
-  });
-  ui.confirmModal.addEventListener("click", event => {
-    if (event.target === ui.confirmModal) {
-      closeConfirmModal();
-    }
-  });
-  ui.scrollTopBtn?.addEventListener("click", () => {
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  });
-  window.addEventListener("scroll", updateScrollTopVisibility, { passive: true });
-  updateScrollTopVisibility();
-
-  saveDraft();
 }
 
 async function initializeBuilderPage() {
-  ui.addTopFieldBtn?.remove();
-  renderBuilder();
-  if (isAdminUnlocked()) {
-    unlockBuilderWorkspace();
+  try {
+    await runWithLoading("\u0413\u043e\u0442\u043e\u0432\u0438\u043c \u043a\u043e\u043d\u0441\u0442\u0440\u0443\u043a\u0442\u043e\u0440...", async () => {
+      ensureBuilderSaveIndicator();
+      updateBuilderSaveIndicator();
+      ui.addTopFieldBtn?.remove();
+    applyBuilderAuthMode();
+    if (hasSupabaseAuthConfig()) {
+      setAdminToken("");
+    }
+    if (hasSupabaseAuthConfig()) {
+      const client = getSupabaseBrowserClient();
+      const result = await client.auth.getSession().catch(() => ({ data: { session: null } }));
+      if (result?.data?.session) {
+        setSupabaseSession(result.data.session);
+      }
+    }
+    renderBuilder();
+    if (hasBuilderAuthorization()) {
+      setSelectedBuilderFormSlug("");
+      await loadBuilderForms();
+      unlockBuilderWorkspace();
+    }
+    });
+  } finally {
+    resetLoadingOverlay();
   }
 
   if (ui.unlockBuilderBtn) {
@@ -3337,6 +5095,22 @@ async function initializeBuilderPage() {
       }
     });
   }
+
+  if (ui.builderEmail) {
+    ui.builderEmail.addEventListener("keydown", event => {
+      if (event.key === "Enter") {
+        handleBuilderUnlock();
+      }
+    });
+  }
+
+  ui.builderForgotPasswordBtn?.addEventListener("click", handleForgotPassword);
+  ui.builderFormsBtn?.addEventListener("click", async () => {
+    closeActiveBuilderForm();
+    state.builder.forms.loading = true;
+    renderBuilder();
+    await loadBuilderForms();
+  });
 
   ui.closeBuilderBtn.addEventListener("click", closeBuilder);
   ui.saveSchemaBtn?.addEventListener("click", saveSchemaNow);
@@ -3392,6 +5166,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   ui.builderSidebar = document.getElementById("builderSidebar");
   ui.builderLayout = document.querySelector(".builder-layout");
   ui.closeBuilderBtn = document.getElementById("closeBuilderBtn");
+  ui.builderFormsBtn = document.getElementById("builderFormsBtn");
+  ui.builderOpenFormBtn = document.getElementById("builderOpenFormBtn");
   ui.saveSchemaBtn = document.getElementById("saveSchemaBtn");
   ui.addFieldFromSidebarBtn = document.getElementById("addFieldFromSidebarBtn");
   ui.addTopFieldBtn = document.getElementById("addTopFieldBtn");
@@ -3399,9 +5175,13 @@ document.addEventListener("DOMContentLoaded", async () => {
   ui.resetAllDataBtn = document.getElementById("resetAllDataBtn");
   ui.builderGate = document.getElementById("builderGate");
   ui.builderWorkspace = document.getElementById("builderWorkspace");
+  ui.builderEmail = document.getElementById("builderEmail");
   ui.builderPasscode = document.getElementById("builderPasscode");
   ui.unlockBuilderBtn = document.getElementById("unlockBuilderBtn");
+  ui.builderForgotPasswordBtn = document.getElementById("builderForgotPasswordBtn");
+  ui.builderAuthModeLabel = document.getElementById("builderAuthModeLabel");
   ui.builderAuthError = document.getElementById("builderAuthError");
+  ui.builderWorkspaceTitle = document.getElementById("builderWorkspaceTitle");
   ui.builderTabs = Array.from(document.querySelectorAll("[data-builder-tab]"));
   ui.builderOutline = document.getElementById("builderOutline");
   ui.pageTitle = document.getElementById("pageTitle");
@@ -3410,6 +5190,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   ui.heroSubline = document.getElementById("heroSubline");
   ui.heroBadge = document.getElementById("heroBadge");
   ui.heroNote = document.getElementById("heroNote");
+  ui.adminEntryLink = document.getElementById("adminEntryLink");
   ui.userSectionTitle = document.getElementById("userSectionTitle");
   ui.userSectionHint = document.getElementById("userSectionHint");
   ui.participantsStatLabel = document.getElementById("participantsStatLabel");
