@@ -1,3 +1,1 @@
-window.FORM_RUNTIME_CONFIG = {
-  apiBaseUrl: "http://shurateren.temp.swtest.ru/api"
-};
+window.FORM_RUNTIME_CONFIG = window.FORM_RUNTIME_CONFIG || {};
