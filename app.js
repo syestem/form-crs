@@ -1684,7 +1684,7 @@ function renderField(field, container, index) {
       refreshUI(true);
     });
     input.addEventListener("click", () => {
-      if (typeof input.showPicker === "function") {
+      if (!isAppleMobileDevice() && typeof input.showPicker === "function") {
         input.showPicker();
       }
     });
@@ -4034,6 +4034,14 @@ function renderResponsesPanel() {
     return section;
   }
 
+  const summary = renderResponsesSummary(
+    state.builder.responses.headers,
+    state.builder.responses.rows
+  );
+  if (summary) {
+    section.appendChild(summary);
+  }
+
   const wrap = document.createElement("div");
   wrap.className = "builder-table-wrap";
 
@@ -4115,6 +4123,102 @@ function renderResponsesPanel() {
   section.appendChild(wrap);
 
   return section;
+}
+
+function buildResponsesSummaryData(headers, rows) {
+  if (!Array.isArray(headers) || !Array.isArray(rows) || !headers.length || !rows.length) {
+    return null;
+  }
+
+  const updatedAtIndex = headers.findIndex(header => /updatedat/i.test(String(header || "")));
+  const firstDynamicIndex = Math.min(4, headers.length);
+  const topAnswers = [];
+
+  for (let index = firstDynamicIndex; index < headers.length; index += 1) {
+    const counts = new Map();
+    rows.forEach(row => {
+      const value = cleanString(row?.[index] ?? "").trim();
+      if (!value) {
+        return;
+      }
+      counts.set(value, (counts.get(value) || 0) + 1);
+    });
+
+    if (!counts.size) {
+      continue;
+    }
+
+    const [topValue, topCount] = Array.from(counts.entries()).sort((left, right) => right[1] - left[1])[0];
+    topAnswers.push({
+      label: text(String(headers[index] || "")),
+      value: text(topValue),
+      count: topCount
+    });
+  }
+
+  topAnswers.sort((left, right) => right.count - left.count);
+
+  return {
+    total: rows.length,
+    lastUpdated: updatedAtIndex >= 0 ? formatBuilderDate(rows[0]?.[updatedAtIndex] || "") : "",
+    highlights: topAnswers.slice(0, 3)
+  };
+}
+
+function renderResponsesSummary(headers, rows) {
+  const summary = buildResponsesSummaryData(headers, rows);
+  if (!summary) {
+    return null;
+  }
+
+  const wrap = document.createElement("div");
+  wrap.className = "builder-responses-summary";
+
+  const metricTotal = document.createElement("div");
+  metricTotal.className = "builder-responses-summary-card";
+  const totalLabel = document.createElement("span");
+  totalLabel.className = "builder-responses-summary-label";
+  totalLabel.textContent = "\u041e\u0442\u0432\u0435\u0442\u043e\u0432";
+  const totalValue = document.createElement("strong");
+  totalValue.className = "builder-responses-summary-value";
+  totalValue.textContent = String(summary.total);
+  metricTotal.append(totalLabel, totalValue);
+  wrap.appendChild(metricTotal);
+
+  if (summary.lastUpdated) {
+    const metricUpdated = document.createElement("div");
+    metricUpdated.className = "builder-responses-summary-card";
+    const updatedLabel = document.createElement("span");
+    updatedLabel.className = "builder-responses-summary-label";
+    updatedLabel.textContent = "\u041f\u043e\u0441\u043b\u0435\u0434\u043d\u0438\u0439 \u043e\u0442\u0432\u0435\u0442";
+    const updatedValue = document.createElement("strong");
+    updatedValue.className = "builder-responses-summary-value";
+    updatedValue.textContent = text(summary.lastUpdated);
+    metricUpdated.append(updatedLabel, updatedValue);
+    wrap.appendChild(metricUpdated);
+  }
+
+  summary.highlights.forEach(item => {
+    const card = document.createElement("div");
+    card.className = "builder-responses-summary-card";
+
+    const label = document.createElement("span");
+    label.className = "builder-responses-summary-label";
+    label.textContent = item.label;
+
+    const value = document.createElement("strong");
+    value.className = "builder-responses-summary-value";
+    value.textContent = item.value;
+
+    const meta = document.createElement("span");
+    meta.className = "builder-responses-summary-meta";
+    meta.textContent = `\u0412\u044b\u0431\u0440\u0430\u043b\u0438: ${item.count}`;
+
+    card.append(label, value, meta);
+    wrap.appendChild(card);
+  });
+
+  return wrap;
 }
 
 function renderPermissionsPanel() {
@@ -4481,33 +4585,18 @@ async function paintBeforeHeavyWork(message, callback) {
   }
 }
 
-function createExcelHtmlTable(headers, rows) {
-  const escapeHtml = value => text(String(value ?? ""))
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
+function createCsvContent(headers, rows) {
+  const escapeCsv = value => {
+    const normalized = String(value ?? "").replaceAll('"', '""');
+    return `"${normalized}"`;
+  };
 
-  const head = headers.map(header => `<th>${escapeHtml(header)}</th>`).join("");
-  const body = rows.map(row => `<tr>${row.map(cell => `<td>${escapeHtml(cell)}</td>`).join("")}</tr>`).join("");
+  const lines = [
+    headers.map(escapeCsv).join(";"),
+    ...rows.map(row => row.map(escapeCsv).join(";"))
+  ];
 
-  return `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8" />
-  <style>
-    table { border-collapse: collapse; width: 100%; }
-    th, td { border: 1px solid #d1d5db; padding: 8px 10px; text-align: left; vertical-align: top; }
-    th { background: #f3f4f6; font-weight: 700; }
-  </style>
-</head>
-<body>
-  <table>
-    <thead><tr>${head}</tr></thead>
-    <tbody>${body}</tbody>
-  </table>
-</body>
-</html>`;
+  return lines.join("\r\n");
 }
 
 function exportResponsesToExcel() {
@@ -4517,13 +4606,18 @@ function exportResponsesToExcel() {
     return;
   }
 
-  const html = createExcelHtmlTable(headers, rows);
-  const blob = new Blob(["\ufeff", html], { type: "application/vnd.ms-excel;charset=utf-8;" });
+  const preparedRows = rows.map(row => row.map((cell, index) => {
+    const headerKey = String(headers[index] || "");
+    return /updatedat/i.test(headerKey) ? formatBuilderDate(cell) : text(String(cell ?? ""));
+  }));
+  const csv = createCsvContent(headers, preparedRows);
+  const blob = new Blob(["\ufeff", csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   const datePart = new Date().toISOString().slice(0, 10);
+  const formSlug = slugifyFormValue(state.builder.selectedFormSlug || CONFIG.form?.slug || "form") || "form";
   link.href = url;
-  link.download = `responses-${datePart}.xls`;
+  link.download = `${formSlug}-${datePart}.csv`;
   document.body.appendChild(link);
   link.click();
   link.remove();
