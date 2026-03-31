@@ -636,6 +636,31 @@ function getFields() {
   return state.schema;
 }
 
+function getFieldById(fieldId) {
+  return getFields().find(field => cleanString(field?.id) === cleanString(fieldId)) || null;
+}
+
+function getOptionByValue(fieldId, optionValue, optionIndex = -1) {
+  const liveField = getFieldById(fieldId);
+  if (!liveField || !Array.isArray(liveField.options)) {
+    return null;
+  }
+
+  const normalizedValue = cleanString(optionValue);
+  if (normalizedValue) {
+    const byValue = liveField.options.find(option => cleanString(option?.value) === normalizedValue);
+    if (byValue) {
+      return byValue;
+    }
+  }
+
+  if (optionIndex >= 0 && optionIndex < liveField.options.length) {
+    return liveField.options[optionIndex];
+  }
+
+  return null;
+}
+
 function getDefaultUiConfig() {
   return normalizeUiConfig(deepClone(CONFIG.ui || {}));
 }
@@ -836,6 +861,9 @@ function normalizeOption(option) {
 }
 
 function normalizeField(field) {
+  const normalizedOptions = Array.isArray(field?.options)
+    ? field.options.map(normalizeOption)
+    : [];
   const normalized = {
     id: cleanString(field?.id) || generateId("field"),
     label: cleanString(field?.label) || "\u041d\u043e\u0432\u044b\u0439 \u0432\u043e\u043f\u0440\u043e\u0441",
@@ -850,9 +878,9 @@ function normalizeField(field) {
   };
 
   if (normalized.type !== "text" && normalized.type !== "date") {
-    normalized.options = Array.isArray(field?.options) && field.options.length
-      ? field.options.map(normalizeOption)
-      : [createOptionTemplate()];
+    normalized.options = normalizedOptions.length ? normalizedOptions : [createOptionTemplate()];
+  } else if (normalizedOptions.length) {
+    normalized.options = normalizedOptions;
   }
 
   return normalized;
@@ -3397,11 +3425,19 @@ function renderOptionEditor(option, options, optionIndex, field) {
       wrap.className = "builder-switches";
       wrap.append(
         createCheckbox("\u0412\u044b\u0431\u0440\u0430\u043d\u043e \u043f\u043e \u0443\u043c\u043e\u043b\u0447\u0430\u043d\u0438\u044e", option.defaultSelected, checked => {
-          option.defaultSelected = checked;
+          const liveOption = getOptionByValue(field.id, option.value, optionIndex);
+          if (!liveOption) {
+            return;
+          }
+          liveOption.defaultSelected = checked;
           applySchemaChanges({ resetValues: true });
         }),
         createCheckbox("\u0417\u0430\u0431\u043b\u043e\u043a\u0438\u0440\u043e\u0432\u0430\u043d\u043e", option.locked, checked => {
-          option.locked = checked;
+          const liveOption = getOptionByValue(field.id, option.value, optionIndex);
+          if (!liveOption) {
+            return;
+          }
+          liveOption.locked = checked;
           applySchemaChanges({ resetValues: true });
         })
       );
@@ -3497,11 +3533,10 @@ function renderFieldEditor(field, fields, index) {
     ], value => {
       field.type = value;
       if (value === "text" || value === "date") {
-        delete field.options;
         field.appearance = "";
       } else if (!Array.isArray(field.options) || !field.options.length) {
         field.options = [createOptionTemplate()];
-        }
+      }
       applySchemaChanges({ resetValues: true, rerenderBuilder: true });
     }), "builder-group-compact"),
     createBuilderField("\u0412\u0438\u0434", (() => {
@@ -3571,7 +3606,11 @@ function renderFieldEditor(field, fields, index) {
       if (document.activeElement instanceof HTMLElement) {
         document.activeElement.blur();
       }
-      field.options.push(createOptionTemplate());
+      const liveField = getFieldById(field.id);
+      if (!liveField || !Array.isArray(liveField.options)) {
+        return;
+      }
+      liveField.options.push(createOptionTemplate());
       applySchemaChanges({ resetValues: true, rerenderBuilder: true });
     });
     card.appendChild(addOptionBtn);
