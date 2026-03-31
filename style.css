@@ -2647,4 +2647,7 @@ button:disabled {
   border-color: color-mix(in srgb, var(--button-primary-end) 60%, transparent);
   background: linear-gradient(135deg, var(--button-primary-start), var(--button-primary-end));
   color: #ffffff;
+  outline: 2px solid #ffffff;
+  outline-offset: -2px;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--hero-accent) 26%, transparent), 0 0 18px color-mix(in srgb, var(--button-primary-end) 22%, transparent);
 }
