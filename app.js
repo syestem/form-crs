@@ -405,6 +405,40 @@ function getRoleLabel(role) {
   return "\u041d\u0430\u0431\u043b\u044e\u0434\u0430\u0442\u0435\u043b\u044c";
 }
 
+function formatFormDateValue(value) {
+  const source = cleanString(value || "");
+  if (!source) {
+    return "";
+  }
+
+  const date = new Date(source);
+  if (Number.isNaN(date.getTime())) {
+    return source;
+  }
+
+  return new Intl.DateTimeFormat("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric"
+  }).format(date);
+}
+
+function getResponsesHeaderLabel(header) {
+  const normalized = cleanString(header || "");
+  switch (normalized.toLowerCase()) {
+    case "updatedat":
+      return "\u0414\u0430\u0442\u0430 \u0437\u0430\u043f\u043e\u043b\u043d\u0435\u043d\u0438\u044f";
+    case "name":
+      return "\u0424\u0418\u041e";
+    case "group":
+      return "\u0413\u0440\u0443\u043f\u043f\u0430";
+    case "perperson":
+      return "\u0426\u0435\u043d\u0430 \u043d\u0430 \u0447\u0435\u043b\u043e\u0432\u0435\u043a\u0430";
+    default:
+      return text(normalized);
+  }
+}
+
 function getAssignableRoleChoices() {
   return [
     { value: "owner", label: "\u0412\u043b\u0430\u0434\u0435\u043b\u0435\u0446" },
@@ -1673,28 +1707,35 @@ function renderField(field, container, index) {
   if (field.type === "date") {
     const dateWrap = document.createElement("div");
     dateWrap.className = "date-field-wrap";
+    const selectedDateValue = state.values[field.id] || "";
 
     const input = document.createElement("input");
-    input.type = "date";
+    const appleMobile = isAppleMobileDevice();
+    input.type = appleMobile ? "text" : "date";
     input.className = "date-field-input";
-    input.value = state.values[field.id] || "";
-    input.addEventListener("change", event => {
-      state.values[field.id] = event.target.value;
-      saveDraft();
-      refreshUI(true);
-    });
+    input.value = appleMobile ? formatFormDateValue(selectedDateValue) : selectedDateValue;
+    if (appleMobile) {
+      input.readOnly = true;
+      input.placeholder = "\u0414\u0414.\u041c\u041c.\u0413\u0413\u0413\u0413";
+    } else {
+      input.addEventListener("change", event => {
+        state.values[field.id] = event.target.value;
+        saveDraft();
+        refreshUI(true);
+      });
+    }
     input.addEventListener("click", () => {
-      if (!isAppleMobileDevice() && typeof input.showPicker === "function") {
+      if (!appleMobile && typeof input.showPicker === "function") {
         input.showPicker();
       }
     });
 
     dateWrap.appendChild(input);
 
-    const popularityMeta = getFieldPopularityMeta(field, input.value);
-    dateWrap.appendChild(createDateCalendar(field, input.value));
+    const popularityMeta = getFieldPopularityMeta(field, selectedDateValue);
+    dateWrap.appendChild(createDateCalendar(field, selectedDateValue));
 
-    if (input.value && popularityMeta.percent > 0) {
+    if (selectedDateValue && popularityMeta.percent > 0) {
       dateWrap.dataset.popularity = getDatePopularityTone(popularityMeta.percent);
       const note = document.createElement("div");
       note.className = "date-field-popularity";
@@ -2994,13 +3035,13 @@ function renderDependencyGroupEditor(field, visibility, group, groupIndex) {
     });
   groupJoinerSelect.classList.add("builder-dependency-joiner-select");
   row.append(
-    createBuilderField("\u0421\u0432\u044f\u0437\u044c \u043f\u0440\u0430\u0432\u0438\u043b \u0432 \u0433\u0440\u0443\u043f\u043f\u0435", groupJoinerSelect)
+    createBuilderField("\u0421\u0432\u044f\u0437\u044c", groupJoinerSelect, "builder-group-compact builder-dependency-joiner-field")
   );
 
   const removeGroupBtn = document.createElement("button");
   removeGroupBtn.type = "button";
-  removeGroupBtn.className = "button-secondary builder-dependency-remove-group";
-  removeGroupBtn.textContent = "\u0423\u0434\u0430\u043b\u0438\u0442\u044c \u0433\u0440\u0443\u043f\u043f\u0443";
+  removeGroupBtn.className = "button-secondary builder-row-delete builder-dependency-remove-group";
+  removeGroupBtn.textContent = "\u0423\u0434\u0430\u043b\u0438\u0442\u044c";
   removeGroupBtn.addEventListener("click", () => {
     visibility.groups.splice(groupIndex, 1);
     applySchemaChanges({ resetValues: true, rerenderBuilder: true });
@@ -3056,6 +3097,7 @@ function renderDependencyGroupEditor(field, visibility, group, groupIndex) {
 
   const addRuleBtn = document.createElement("button");
   addRuleBtn.type = "button";
+  addRuleBtn.className = "builder-dependency-add-btn";
   addRuleBtn.textContent = "+";
   addRuleBtn.title = "\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u043f\u0440\u0430\u0432\u0438\u043b\u043e";
   addRuleBtn.setAttribute("aria-label", "\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u043f\u0440\u0430\u0432\u0438\u043b\u043e");
@@ -3128,6 +3170,7 @@ function renderDependenciesSection(field) {
 
   const addGroupBtn = document.createElement("button");
   addGroupBtn.type = "button";
+  addGroupBtn.className = "builder-dependency-add-btn";
   addGroupBtn.textContent = "+";
   addGroupBtn.title = "\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u0433\u0440\u0443\u043f\u043f\u0443 \u0443\u0441\u043b\u043e\u0432\u0438\u0439";
   addGroupBtn.setAttribute("aria-label", "\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u0433\u0440\u0443\u043f\u043f\u0443 \u0443\u0441\u043b\u043e\u0432\u0438\u0439");
@@ -4069,7 +4112,7 @@ function renderResponsesPanel() {
 
   state.builder.responses.headers.forEach(header => {
     const th = document.createElement("th");
-    th.textContent = text(String(header));
+    th.textContent = getResponsesHeaderLabel(header);
     headRow.appendChild(th);
   });
   const actionsHeader = document.createElement("th");
@@ -4150,13 +4193,11 @@ function buildResponsesSummaryData(headers, rows) {
 
     const [topValue, topCount] = Array.from(counts.entries()).sort((left, right) => right[1] - left[1])[0];
     topAnswers.push({
-      label: text(String(headers[index] || "")),
+      label: getResponsesHeaderLabel(headers[index] || ""),
       value: text(topValue),
       count: topCount
     });
   }
-
-  topAnswers.sort((left, right) => right.count - left.count);
 
   return {
     total: rows.length,
@@ -4201,6 +4242,7 @@ function renderResponsesSummary(headers, rows) {
   summary.highlights.forEach(item => {
     const card = document.createElement("div");
     card.className = "builder-responses-summary-card";
+    card.dataset.kind = "answer";
 
     const label = document.createElement("span");
     label.className = "builder-responses-summary-label";
@@ -4212,7 +4254,7 @@ function renderResponsesSummary(headers, rows) {
 
     const meta = document.createElement("span");
     meta.className = "builder-responses-summary-meta";
-    meta.textContent = `\u0412\u044b\u0431\u0440\u0430\u043b\u0438: ${item.count}`;
+    meta.textContent = `\u0412\u044b\u0431\u043e\u0440\u043e\u0432: ${item.count}`;
 
     card.append(label, value, meta);
     wrap.appendChild(card);
@@ -4610,7 +4652,7 @@ function exportResponsesToExcel() {
     const headerKey = String(headers[index] || "");
     return /updatedat/i.test(headerKey) ? formatBuilderDate(cell) : text(String(cell ?? ""));
   }));
-  const csv = createCsvContent(headers, preparedRows);
+  const csv = createCsvContent(headers.map(getResponsesHeaderLabel), preparedRows);
   const blob = new Blob(["\ufeff", csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");

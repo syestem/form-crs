@@ -1859,18 +1859,23 @@ button:disabled {
 
 .builder-dependency-remove-group {
   width: fit-content;
-  min-width: 78px;
-  min-height: 34px !important;
-  padding: 5px 10px !important;
+  min-width: 92px;
+  min-height: 36px !important;
+  padding: 0 14px !important;
   font-size: 11px !important;
   align-self: start;
 }
 
+.builder-dependency-joiner-field {
+  max-width: 112px;
+}
+
 .builder-dependency-joiner-select {
-  width: 84px;
-  min-width: 84px;
-  min-height: 34px !important;
-  padding: 5px 8px !important;
+  width: 72px !important;
+  min-width: 72px !important;
+  max-width: 72px !important;
+  min-height: 32px !important;
+  padding: 4px 8px !important;
   font-size: 11px !important;
 }
 
@@ -1947,7 +1952,7 @@ button:disabled {
   min-width: 44px;
   width: 44px;
   height: 40px;
-  margin: 10px 0 12px;
+  margin: 14px 0;
   padding: 0;
   border-radius: 12px;
   font-size: 22px;
@@ -1955,6 +1960,10 @@ button:disabled {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+
+.builder-dependency-add-btn {
+  margin: 16px 0 14px !important;
 }
 
 .builder-outline-note {
@@ -1987,6 +1996,14 @@ button:disabled {
   border-radius: 16px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.02));
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
+}
+
+.builder-responses-summary-card[data-kind="answer"] {
+  border-color: color-mix(in srgb, var(--hero-accent) 26%, rgba(255,255,255,0.08));
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.02)),
+    radial-gradient(circle at top right, color-mix(in srgb, var(--hero-accent) 10%, transparent), transparent 54%);
 }
 
 .builder-responses-summary-label {
@@ -2444,6 +2461,10 @@ button:disabled {
     font-size: 15px;
   }
 
+  .date-field-input[type="text"] {
+    text-align: center;
+  }
+
   .date-calendar {
     gap: 6px;
   }
@@ -2475,12 +2496,13 @@ button:disabled {
   }
 
   .builder-dependency-joiner-select {
-    width: 72px;
-    min-width: 72px;
+    width: 68px !important;
+    min-width: 68px !important;
+    max-width: 68px !important;
   }
 
   .builder-dependency-remove-group {
-    min-width: 72px;
+    min-width: 88px;
   }
 
   .builder-responses-summary {
