@@ -110,6 +110,7 @@ const ui = {
   builderOutline: null,
   pageTitle: null,
   heroKicker: null,
+  heroRibbonTop: null,
   heroHeadline: null,
   heroSubline: null,
   heroBadge: null,
@@ -693,23 +694,24 @@ function normalizeUiConfig(config) {
   return {
     ...source,
     pageTitle: cleanString(source.pageTitle || ""),
+    heroRibbonTopText: cleanString(source.heroRibbonTopText || "Cottage event selection"),
     heroKicker: cleanString(source.heroKicker || "Private estate edition"),
     heroHeadline: cleanString(source.heroHeadline || "\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u043f\u043b\u043e\u0449\u0430\u0434\u043a\u0443, \u0431\u0430\u0440 \u0438 \u043f\u0440\u043e\u0433\u0440\u0430\u043c\u043c\u0443 \u0442\u0430\u043a, \u0431\u0443\u0434\u0442\u043e \u0443\u0436\u0435 \u043f\u0440\u043e\u0434\u0430\u0435\u0442\u0435 \u0441\u0430\u043c \u0432\u0435\u0447\u0435\u0440."),
     heroSubline: cleanString(source.heroSubline || "\u0424\u043e\u0440\u043c\u0430 \u0441\u043e\u0431\u0440\u0430\u043d\u0430 \u043a\u0430\u043a \u0430\u0444\u0438\u0448\u0430 \u0441\u043e\u0431\u044b\u0442\u0438\u044f: \u043a\u0440\u0443\u043f\u043d\u044b\u0435 ticket-style \u0430\u043a\u0446\u0435\u043d\u0442\u044b, \u0440\u0432\u0430\u043d\u044b\u0435 \u043d\u0435\u043e\u043d\u043e\u0432\u044b\u0435 \u043f\u043b\u0430\u0448\u043a\u0438 \u0438 \u043f\u043e\u043d\u044f\u0442\u043d\u044b\u0439 \u043c\u0430\u0440\u0448\u0440\u0443\u0442 \u043e\u0442 \u043f\u043b\u043e\u0449\u0430\u0434\u043a\u0438 \u0434\u043e afterparty."),
     heroBadge: cleanString(source.heroBadge || "Sale focus"),
     heroNote: cleanString(source.heroNote || "\u041b\u0443\u0447\u0448\u0435 \u0432\u0441\u0435\u0433\u043e \u0440\u0430\u0431\u043e\u0442\u0430\u0435\u0442 \u043a\u0430\u043a \u043f\u0440\u0435\u0437\u0435\u043d\u0442\u0430\u0446\u0438\u044f \u043a\u043e\u0442\u0442\u0435\u0434\u0436\u0430, \u0437\u0430\u0433\u043e\u0440\u043e\u0434\u043d\u043e\u0439 \u043f\u043b\u043e\u0449\u0430\u0434\u043a\u0438 \u0438 \u043f\u043e\u043b\u043d\u043e\u0433\u043e \u0441\u0446\u0435\u043d\u0430\u0440\u0438\u044f \u0432\u0435\u0447\u0435\u0440\u0430."),
     heroRibbonText: cleanString(source.heroRibbonText || "tickets tickets tickets tickets"),
-    userSectionTitle: cleanString(source.userSectionTitle || ""),
-    userSectionHint: cleanString(source.userSectionHint || ""),
-    namePlaceholder: cleanString(source.namePlaceholder || ""),
-    groupPlaceholder: cleanString(source.groupPlaceholder || ""),
-    participantsStatLabel: cleanString(source.participantsStatLabel || ""),
-    responsesStatLabel: cleanString(source.responsesStatLabel || ""),
-    ticketLabel: cleanString(source.ticketLabel || ""),
-    detailsButtonLabel: cleanString(source.detailsButtonLabel || ""),
-    saveButtonLabel: cleanString(source.saveButtonLabel || ""),
-    resubmitButtonLabel: cleanString(source.resubmitButtonLabel || ""),
-    draftStatusText: cleanString(source.draftStatusText || ""),
+    userSectionTitle: cleanString(source.userSectionTitle || "\u0414\u0430\u043d\u043d\u044b\u0435 \u0441\u0442\u0443\u0434\u0435\u043d\u0442\u0430"),
+    userSectionHint: cleanString(source.userSectionHint || "\u041e\u0441\u0442\u0430\u0432\u044c\u0442\u0435 \u0438\u043c\u044f \u0438 \u0433\u0440\u0443\u043f\u043f\u0443, \u0447\u0442\u043e\u0431\u044b \u043c\u044b \u0441\u043e\u0445\u0440\u0430\u043d\u0438\u043b\u0438 \u0432\u0430\u0448 \u0432\u044b\u0431\u043e\u0440."),
+    namePlaceholder: cleanString(source.namePlaceholder || "\u0424\u0418\u041e"),
+    groupPlaceholder: cleanString(source.groupPlaceholder || "\u0413\u0440\u0443\u043f\u043f\u0430"),
+    participantsStatLabel: cleanString(source.participantsStatLabel || "\u0412 \u0433\u0440\u0443\u043f\u043f\u0435"),
+    responsesStatLabel: cleanString(source.responsesStatLabel || "\u0417\u0430\u043f\u043e\u043b\u043d\u0438\u043b\u0438 \u0444\u043e\u0440\u043c\u0443"),
+    ticketLabel: cleanString(source.ticketLabel || "\u0426\u0435\u043d\u0430 \u0431\u0438\u043b\u0435\u0442\u0430"),
+    detailsButtonLabel: cleanString(source.detailsButtonLabel || "\u041e\u0431\u0449\u0438\u0439 \u0447\u0435\u043a / \u0418\u0442\u043e\u0433\u043e"),
+    saveButtonLabel: cleanString(source.saveButtonLabel || "\u041e\u0442\u043f\u0440\u0430\u0432\u0438\u0442\u044c \u0432\u044b\u0431\u043e\u0440"),
+    resubmitButtonLabel: cleanString(source.resubmitButtonLabel || "\u041e\u0431\u043d\u043e\u0432\u0438\u0442\u044c \u043c\u043e\u0439 \u0432\u044b\u0431\u043e\u0440"),
+    draftStatusText: cleanString(source.draftStatusText || "\u041f\u043e\u0441\u043b\u0435 \u043e\u0442\u043f\u0440\u0430\u0432\u043a\u0438 \u0432\u044b\u0431\u043e\u0440 \u0441\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u0441\u044f, \u0438 \u0435\u0433\u043e \u043c\u043e\u0436\u043d\u043e \u0431\u0443\u0434\u0435\u0442 \u0438\u0437\u043c\u0435\u043d\u0438\u0442\u044c \u043f\u043e\u0437\u0436\u0435."),
     buttonPrimaryStart: source.buttonPrimaryStart || "",
     buttonPrimaryEnd: source.buttonPrimaryEnd || "",
     buttonDetailsStart: source.buttonDetailsStart || "",
@@ -1826,6 +1828,10 @@ function applyUiConfig() {
 
   if (ui.pageTitle) {
     ui.pageTitle.textContent = text(state.formMeta.title || "Командообразование ЦРС");
+  }
+
+  if (ui.heroRibbonTop) {
+    ui.heroRibbonTop.textContent = text(cfg.heroRibbonTopText);
   }
 
   if (ui.heroKicker) {
@@ -2979,19 +2985,21 @@ function renderDependencyGroupEditor(field, visibility, group, groupIndex) {
 
   const row = document.createElement("div");
   row.className = "builder-row builder-row-4";
-  row.append(
-    createBuilderField("\u0421\u0432\u044f\u0437\u044c \u043f\u0440\u0430\u0432\u0438\u043b \u0432 \u0433\u0440\u0443\u043f\u043f\u0435", createSelectInput(group.joiner || "and", [
+  const groupJoinerSelect = createSelectInput(group.joiner || "and", [
       { value: "and", label: "\u0418" },
       { value: "or", label: "\u0418\u041b\u0418" }
     ], value => {
       group.joiner = value;
       applySchemaChanges({ resetValues: true, rerenderBuilder: true });
-    }))
+    });
+  groupJoinerSelect.classList.add("builder-dependency-joiner-select");
+  row.append(
+    createBuilderField("\u0421\u0432\u044f\u0437\u044c \u043f\u0440\u0430\u0432\u0438\u043b \u0432 \u0433\u0440\u0443\u043f\u043f\u0435", groupJoinerSelect)
   );
 
   const removeGroupBtn = document.createElement("button");
   removeGroupBtn.type = "button";
-  removeGroupBtn.className = "button-secondary";
+  removeGroupBtn.className = "button-secondary builder-dependency-remove-group";
   removeGroupBtn.textContent = "\u0423\u0434\u0430\u043b\u0438\u0442\u044c \u0433\u0440\u0443\u043f\u043f\u0443";
   removeGroupBtn.addEventListener("click", () => {
     visibility.groups.splice(groupIndex, 1);
@@ -3597,6 +3605,10 @@ function renderUiConfigEditor() {
   const heroRow = document.createElement("div");
   heroRow.className = "builder-row builder-row-3";
   heroRow.append(
+    createBuilderField("\u0412\u0435\u0440\u0445\u043d\u044f\u044f \u043b\u0435\u043d\u0442\u0430", createTextInput(state.uiConfig.heroRibbonTopText || "", value => {
+      state.uiConfig.heroRibbonTopText = value;
+      applySchemaChanges();
+    })),
     createBuilderField("\u041f\u043b\u0430\u0448\u043a\u0430 hero", createTextInput(state.uiConfig.heroKicker || "", value => {
       state.uiConfig.heroKicker = value;
       applySchemaChanges();
@@ -3604,9 +3616,18 @@ function renderUiConfigEditor() {
     createBuilderField("\u0411\u0435\u0439\u0434\u0436 hero", createTextInput(state.uiConfig.heroBadge || "", value => {
       state.uiConfig.heroBadge = value;
       applySchemaChanges();
-    })),
+    }))
+  );
+
+  const heroMetaRow = document.createElement("div");
+  heroMetaRow.className = "builder-row builder-row-2";
+  heroMetaRow.append(
     createBuilderField("\u041f\u043e\u0434\u043f\u0438\u0441\u044c \u0441\u043f\u0440\u0430\u0432\u0430", createTextInput(state.uiConfig.heroNote || "", value => {
       state.uiConfig.heroNote = value;
+      applySchemaChanges();
+    })),
+    createBuilderField("\u041d\u0438\u0436\u043d\u044f\u044f \u043b\u0435\u043d\u0442\u0430", createTextInput(state.uiConfig.heroRibbonText || "", value => {
+      state.uiConfig.heroRibbonText = value;
       applySchemaChanges();
     }))
   );
@@ -3719,7 +3740,7 @@ function renderUiConfigEditor() {
 
   sections.append(
     createBuilderPanelSection("\u041f\u0430\u0440\u0430\u043c\u0435\u0442\u0440\u044b \u0444\u043e\u0440\u043c\u044b", "\u0417\u0434\u0435\u0441\u044c \u043c\u043e\u0436\u043d\u043e \u0438\u0437\u043c\u0435\u043d\u0438\u0442\u044c \u043d\u0430\u0437\u0432\u0430\u043d\u0438\u0435 \u0444\u043e\u0440\u043c\u044b \u0438 \u0435\u0435 \u0430\u0434\u0440\u0435\u0441 \u0434\u043b\u044f \u043f\u0443\u0431\u043b\u0438\u0447\u043d\u043e\u0439 \u0441\u0441\u044b\u043b\u043a\u0438.", formMetaRow, formDangerRow),
-    createBuilderPanelSection("Hero \u0438 \u0432\u0435\u0440\u0445 \u0444\u043e\u0440\u043c\u044b", "\u041a\u0440\u0443\u043f\u043d\u044b\u0435 \u0442\u0435\u043a\u0441\u0442\u044b \u0438 \u043f\u0440\u043e\u0434\u0430\u044e\u0449\u0438\u0435 \u043f\u043e\u0434\u043f\u0438\u0441\u0438 \u043f\u0435\u0440\u0432\u043e\u0433\u043e \u044d\u043a\u0440\u0430\u043d\u0430.", heroRow, heroTextRow, heroRibbonRow),
+    createBuilderPanelSection("Hero \u0438 \u0432\u0435\u0440\u0445 \u0444\u043e\u0440\u043c\u044b", "\u041a\u0440\u0443\u043f\u043d\u044b\u0435 \u0442\u0435\u043a\u0441\u0442\u044b \u0438 \u043f\u0440\u043e\u0434\u0430\u044e\u0449\u0438\u0435 \u043f\u043e\u0434\u043f\u0438\u0441\u0438 \u043f\u0435\u0440\u0432\u043e\u0433\u043e \u044d\u043a\u0440\u0430\u043d\u0430.", heroRow, heroMetaRow, heroTextRow, heroRibbonRow),
     createBuilderPanelSection("\u041f\u043e\u043b\u044f \u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044f", "\u041f\u043e\u0434\u043f\u0438\u0441\u0438 \u0438 \u0442\u0435\u043a\u0441\u0442\u044b \u0431\u043b\u043e\u043a\u0430 \u0441 \u0438\u043c\u0435\u043d\u0435\u043c \u0438 \u0433\u0440\u0443\u043f\u043f\u043e\u0439.", userRow, userHintRow, countRow),
     createBuilderPanelSection("\u041f\u043e\u0434\u043f\u0438\u0441\u0438 \u0438 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044f", "\u041a\u043d\u043e\u043f\u043a\u0438, \u0441\u0447\u0435\u0442\u0447\u0438\u043a\u0438 \u0438 \u0442\u0435\u043a\u0441\u0442 \u043f\u043e\u0441\u043b\u0435 \u043e\u0442\u043f\u0440\u0430\u0432\u043a\u0438.", labelsRow, buttonRow, draftRow)
   );
@@ -4068,7 +4089,10 @@ function renderResponsesPanel() {
 
     row.forEach(cell => {
       const td = document.createElement("td");
-      td.textContent = text(String(cell ?? ""));
+      const headerKey = String(state.builder.responses.headers[tr.children.length - 1] || "");
+      td.textContent = /updatedat/i.test(headerKey)
+        ? formatBuilderDate(cell)
+        : text(String(cell ?? ""));
       tr.appendChild(td);
     });
     const actionTd = document.createElement("td");
@@ -4227,7 +4251,7 @@ function renderBuilderOutline() {
   topLink.className = "builder-outline-link";
   topLink.textContent = "\u0412\u0435\u0440\u0445 \u0444\u043e\u0440\u043c\u044b";
   topLink.addEventListener("click", () => {
-    document.getElementById("builder-section-ui")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    window.scrollTo({ top: 0, behavior: "smooth" });
   });
   topItem.appendChild(topLink);
   ui.builderOutline.appendChild(topItem);
@@ -5205,6 +5229,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   ui.builderTabs = Array.from(document.querySelectorAll("[data-builder-tab]"));
   ui.builderOutline = document.getElementById("builderOutline");
   ui.pageTitle = document.getElementById("pageTitle");
+  ui.heroRibbonTop = document.getElementById("heroRibbonTop");
   ui.heroKicker = document.getElementById("heroKicker");
   ui.heroHeadline = document.getElementById("heroHeadline");
   ui.heroSubline = document.getElementById("heroSubline");
