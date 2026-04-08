@@ -75,7 +75,7 @@ const CONFIG = {
   },
   ui: {
     pageTitle: "Командообразование спорт",
-    userSectionTitle: "Данные студента СГУПС",
+    userSectionTitle: "Личные данные",
     userSectionHint: "Оставьте имя и группу, чтобы мы сохранили ваш выбор.",
     namePlaceholder: "ФИО",
     groupPlaceholder: "Группа",
