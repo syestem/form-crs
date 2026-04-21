@@ -439,7 +439,11 @@ function getResponsesHeaderLabel(header) {
     case "name":
       return "\u0424\u0418\u041e";
     case "group":
-      return "\u0413\u0440\u0443\u043f\u043f\u0430";
+      return text(state.uiConfig?.groupPlaceholder || "\u0413\u0440\u0443\u043f\u043f\u0430");
+    case "multiply":
+      return "\u00d7";
+    case "hourlyrate":
+      return "\u0421\u0442\u043e\u0438\u043c\u043e\u0441\u0442\u044c \u0432 \u0447\u0430\u0441";
     case "perperson":
       return "\u0426\u0435\u043d\u0430 \u043d\u0430 \u0447\u0435\u043b\u043e\u0432\u0435\u043a\u0430";
     case "hours":
@@ -825,6 +829,8 @@ function normalizeUiConfig(config) {
     hoursSectionHint: cleanString(source.hoursSectionHint || "\u0423\u043a\u0430\u0436\u0438\u0442\u0435 \u0434\u043b\u0438\u0442\u0435\u043b\u044c\u043d\u043e\u0441\u0442\u044c, \u0435\u0441\u043b\u0438 \u0432 \u0444\u043e\u0440\u043c\u0435 \u0435\u0441\u0442\u044c \u043f\u043e\u0437\u0438\u0446\u0438\u0438 \u0441 \u043e\u043f\u043b\u0430\u0442\u043e\u0439 \u0437\u0430 \u0447\u0430\u0441."),
     hoursFieldLabel: cleanString(source.hoursFieldLabel || "\u041a\u043e\u043b\u0438\u0447\u0435\u0441\u0442\u0432\u043e \u0447\u0430\u0441\u043e\u0432"),
     hoursFieldMeta: cleanString(source.hoursFieldMeta || "4 \u0447\u0430\u0441\u0430 \u0431\u0435\u0441\u043f\u043b\u0430\u0442\u043d\u043e"),
+    showOptionPopularity: source.showOptionPopularity !== false,
+    optionPopularityTemplate: cleanString(source.optionPopularityTemplate || "\u042d\u0442\u043e\u0442 \u0432\u0430\u0440\u0438\u0430\u043d\u0442 \u0432\u044b\u0431\u0440\u0430\u043b\u0438 {percent}% \u0433\u0440\u0443\u043f\u043f\u044b"),
     showPerPersonSuffix: source.showPerPersonSuffix !== false,
     showParticipantsStat: source.showParticipantsStat !== false,
     showResponsesStat: source.showResponsesStat !== false,
@@ -849,6 +855,8 @@ function normalizeUiConfig(config) {
     surfaceBorder: source.surfaceBorder || "",
     checkTableStart: source.checkTableStart || "",
     checkTableEnd: source.checkTableEnd || "",
+    optionHighlightColor: source.optionHighlightColor || "",
+    optionSelectedBg: source.optionSelectedBg || "",
     participantsCount: Number(source.participantsCount) || CONFIG.participants,
     displayParticipantsCount: parsePositiveCount(source.displayParticipantsCount ?? source.participantsCount, CONFIG.participants),
     pricingParticipantsCount: parsePositiveCount(source.pricingParticipantsCount ?? source.participantsCount, CONFIG.participants)
@@ -1502,6 +1510,10 @@ function scrollToFirstInvalidArea() {
 }
 
 function getPopularityText(field, option) {
+  if (state.uiConfig?.showOptionPopularity === false) {
+    return "";
+  }
+
   if (option.locked) {
     return "";
   }
@@ -1513,7 +1525,8 @@ function getPopularityText(field, option) {
   }
 
   const percent = Math.round((count / total) * 100);
-  return `\u042d\u0442\u043e\u0442 \u0432\u0430\u0440\u0438\u0430\u043d\u0442 \u0432\u044b\u0431\u0440\u0430\u043b\u0438 ${percent}% \u0433\u0440\u0443\u043f\u043f\u044b`;
+  const template = text(state.uiConfig?.optionPopularityTemplate || getDefaultUiConfig().optionPopularityTemplate);
+  return template.replace(/\{percent\}/g, String(percent));
 }
 
 function getFieldTheme(field, index) {
@@ -2234,6 +2247,8 @@ function applyUiConfig() {
   document.documentElement.style.setProperty("--surface-border", cfg.surfaceBorder || "rgba(255, 255, 255, 0.12)");
   document.documentElement.style.setProperty("--check-table-start", cfg.checkTableStart || "#161920");
   document.documentElement.style.setProperty("--check-table-end", cfg.checkTableEnd || "#0f1218");
+  document.documentElement.style.setProperty("--option-highlight-color", cfg.optionHighlightColor || cfg.heroAccent || "#d9ff3f");
+  document.documentElement.style.setProperty("--option-selected-bg", cfg.optionSelectedBg || "color-mix(in srgb, var(--option-highlight-color) 18%, rgba(255,255,255,0.03))");
 }
 
 function updateSubmitUi() {
@@ -4195,6 +4210,26 @@ function renderUiConfigEditor() {
     }))
   );
 
+  const popularityRow = document.createElement("div");
+  popularityRow.className = "builder-row builder-row-2";
+  popularityRow.append(
+    createBuilderField("\u041f\u043e\u043f\u0443\u043b\u044f\u0440\u043d\u043e\u0441\u0442\u044c \u0432\u0430\u0440\u0438\u0430\u043d\u0442\u043e\u0432", (() => {
+      const wrap = document.createElement("div");
+      wrap.className = "builder-switches";
+      wrap.append(
+        createCheckbox("\u041f\u043e\u043a\u0430\u0437\u044b\u0432\u0430\u0442\u044c \u043f\u0440\u043e\u0446\u0435\u043d\u0442 \u0432\u044b\u0431\u043e\u0440\u0430", state.uiConfig.showOptionPopularity !== false, checked => {
+          state.uiConfig.showOptionPopularity = checked;
+          applySchemaChanges();
+        })
+      );
+      return wrap;
+    })()),
+    createBuilderField("\u0422\u0435\u043a\u0441\u0442 \u043f\u043e\u043f\u0443\u043b\u044f\u0440\u043d\u043e\u0441\u0442\u0438", createTextInput(state.uiConfig.optionPopularityTemplate || "", value => {
+      state.uiConfig.optionPopularityTemplate = value;
+      applySchemaChanges();
+    }))
+  );
+
   const hoursRow = document.createElement("div");
   hoursRow.className = "builder-row builder-row-3";
   hoursRow.append(
@@ -4234,7 +4269,7 @@ function renderUiConfigEditor() {
     createBuilderPanelSection("\u041f\u0430\u0440\u0430\u043c\u0435\u0442\u0440\u044b \u0444\u043e\u0440\u043c\u044b", "\u0417\u0434\u0435\u0441\u044c \u043c\u043e\u0436\u043d\u043e \u0438\u0437\u043c\u0435\u043d\u0438\u0442\u044c \u043d\u0430\u0437\u0432\u0430\u043d\u0438\u0435 \u0444\u043e\u0440\u043c\u044b \u0438 \u0435\u0435 \u0430\u0434\u0440\u0435\u0441 \u0434\u043b\u044f \u043f\u0443\u0431\u043b\u0438\u0447\u043d\u043e\u0439 \u0441\u0441\u044b\u043b\u043a\u0438.", formMetaRow, formDangerRow),
     createBuilderPanelSection("Hero \u0438 \u0432\u0435\u0440\u0445 \u0444\u043e\u0440\u043c\u044b", "\u041a\u0440\u0443\u043f\u043d\u044b\u0435 \u0442\u0435\u043a\u0441\u0442\u044b \u0438 \u043f\u0440\u043e\u0434\u0430\u044e\u0449\u0438\u0435 \u043f\u043e\u0434\u043f\u0438\u0441\u0438 \u043f\u0435\u0440\u0432\u043e\u0433\u043e \u044d\u043a\u0440\u0430\u043d\u0430.", heroRow, heroMetaRow, heroTextRow),
     createBuilderPanelSection("\u041f\u043e\u043b\u044f \u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044f", "\u041f\u043e\u0434\u043f\u0438\u0441\u0438 \u0438 \u0442\u0435\u043a\u0441\u0442\u044b \u0431\u043b\u043e\u043a\u0430 \u0441 \u0438\u043c\u0435\u043d\u0435\u043c \u0438 \u0433\u0440\u0443\u043f\u043f\u043e\u0439.", userRow, userHintRow, countRow),
-    createBuilderPanelSection("\u041f\u043e\u0434\u043f\u0438\u0441\u0438 \u0438 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044f", "\u041a\u043d\u043e\u043f\u043a\u0438, \u0441\u0447\u0435\u0442\u0447\u0438\u043a\u0438 \u0438 \u0442\u0435\u043a\u0441\u0442 \u043f\u043e\u0441\u043b\u0435 \u043e\u0442\u043f\u0440\u0430\u0432\u043a\u0438.", labelsRow, visibilityRow, buttonRow, extraButtonsRow, profileStatusRow, hoursRow, hoursHintRow, draftRow)
+    createBuilderPanelSection("\u041f\u043e\u0434\u043f\u0438\u0441\u0438 \u0438 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044f", "\u041a\u043d\u043e\u043f\u043a\u0438, \u0441\u0447\u0435\u0442\u0447\u0438\u043a\u0438 \u0438 \u0442\u0435\u043a\u0441\u0442 \u043f\u043e\u0441\u043b\u0435 \u043e\u0442\u043f\u0440\u0430\u0432\u043a\u0438.", labelsRow, visibilityRow, buttonRow, extraButtonsRow, profileStatusRow, popularityRow, hoursRow, hoursHintRow, draftRow)
   );
 
   card.appendChild(sections);
@@ -4289,31 +4324,31 @@ function renderThemeEditor() {
     [
       {
         name: "\u0411\u0430\u0437\u043e\u0432\u0430\u044f",
-        values: { heroAccent: "#d9ff3f", buttonPrimaryStart: "#0f766e", buttonPrimaryEnd: "#059669", pageBgStart: "#0f1013", pageBgMid: "#262b34", pageBgEnd: "#121519", pageGlowPrimary: "#ddff00", pageGlowSecondary: "#ff3a3a" }
+        values: { heroAccent: "#d9ff3f", buttonPrimaryStart: "#0f766e", buttonPrimaryEnd: "#059669", pageBgStart: "#0f1013", pageBgMid: "#262b34", pageBgEnd: "#121519", pageGlowPrimary: "#ddff00", pageGlowSecondary: "#ff3a3a", optionHighlightColor: "#d9ff3f", optionSelectedBg: "#2c3213" }
       },
       {
         name: "\u041e\u043b\u0438\u0432\u043a\u0430",
-        values: { heroAccent: "#d7ff39", buttonPrimaryStart: "#15803d", buttonPrimaryEnd: "#16a34a", pageBgStart: "#13150f", pageBgMid: "#27281d", pageBgEnd: "#171810", pageGlowPrimary: "#d7ff39", pageGlowSecondary: "#95c11f" }
+        values: { heroAccent: "#d7ff39", buttonPrimaryStart: "#15803d", buttonPrimaryEnd: "#16a34a", pageBgStart: "#13150f", pageBgMid: "#27281d", pageBgEnd: "#171810", pageGlowPrimary: "#d7ff39", pageGlowSecondary: "#95c11f", optionHighlightColor: "#d7ff39", optionSelectedBg: "#313617" }
       },
       {
         name: "\u041d\u043e\u0447\u043d\u0430\u044f",
-        values: { heroAccent: "#7cf5ff", buttonPrimaryStart: "#2563eb", buttonPrimaryEnd: "#0ea5e9", pageBgStart: "#0d1320", pageBgMid: "#1c2434", pageBgEnd: "#101822", pageGlowPrimary: "#38bdf8", pageGlowSecondary: "#6366f1" }
+        values: { heroAccent: "#7cf5ff", buttonPrimaryStart: "#2563eb", buttonPrimaryEnd: "#0ea5e9", pageBgStart: "#0d1320", pageBgMid: "#1c2434", pageBgEnd: "#101822", pageGlowPrimary: "#38bdf8", pageGlowSecondary: "#6366f1", optionHighlightColor: "#7cf5ff", optionSelectedBg: "#1a3240" }
       },
       {
         name: "\u0422\u0435\u043f\u043b\u0430\u044f",
-        values: { heroAccent: "#ffd166", buttonPrimaryStart: "#ef4444", buttonPrimaryEnd: "#f97316", pageBgStart: "#1f1311", pageBgMid: "#2b1f1c", pageBgEnd: "#1a1210", pageGlowPrimary: "#f97316", pageGlowSecondary: "#ef4444" }
+        values: { heroAccent: "#ffd166", buttonPrimaryStart: "#ef4444", buttonPrimaryEnd: "#f97316", pageBgStart: "#1f1311", pageBgMid: "#2b1f1c", pageBgEnd: "#1a1210", pageGlowPrimary: "#f97316", pageGlowSecondary: "#ef4444", optionHighlightColor: "#ffd166", optionSelectedBg: "#3b2618" }
       },
       {
         name: "\u0424\u0438\u043e\u043b\u0435\u0442",
-        values: { heroAccent: "#c4b5fd", buttonPrimaryStart: "#7c3aed", buttonPrimaryEnd: "#a855f7", pageBgStart: "#161221", pageBgMid: "#241f36", pageBgEnd: "#171223", pageGlowPrimary: "#8b5cf6", pageGlowSecondary: "#ec4899" }
+        values: { heroAccent: "#c4b5fd", buttonPrimaryStart: "#7c3aed", buttonPrimaryEnd: "#a855f7", pageBgStart: "#161221", pageBgMid: "#241f36", pageBgEnd: "#171223", pageGlowPrimary: "#8b5cf6", pageGlowSecondary: "#ec4899", optionHighlightColor: "#c4b5fd", optionSelectedBg: "#312748" }
       },
       {
         name: "\u041c\u043e\u0440\u0441\u043a\u0430\u044f",
-        values: { heroAccent: "#67e8f9", buttonPrimaryStart: "#0f766e", buttonPrimaryEnd: "#0891b2", pageBgStart: "#0e1a1d", pageBgMid: "#182a30", pageBgEnd: "#10191b", pageGlowPrimary: "#06b6d4", pageGlowSecondary: "#14b8a6" }
+        values: { heroAccent: "#67e8f9", buttonPrimaryStart: "#0f766e", buttonPrimaryEnd: "#0891b2", pageBgStart: "#0e1a1d", pageBgMid: "#182a30", pageBgEnd: "#10191b", pageGlowPrimary: "#06b6d4", pageGlowSecondary: "#14b8a6", optionHighlightColor: "#67e8f9", optionSelectedBg: "#17353b" }
       },
       {
         name: "\u041c\u0438\u043d\u0438\u043c\u0430\u043b",
-        values: { heroAccent: "#f8fafc", buttonPrimaryStart: "#475569", buttonPrimaryEnd: "#334155", pageBgStart: "#121418", pageBgMid: "#1f232b", pageBgEnd: "#15181d", pageGlowPrimary: "#94a3b8", pageGlowSecondary: "#64748b" }
+        values: { heroAccent: "#f8fafc", buttonPrimaryStart: "#475569", buttonPrimaryEnd: "#334155", pageBgStart: "#121418", pageBgMid: "#1f232b", pageBgEnd: "#15181d", pageGlowPrimary: "#94a3b8", pageGlowSecondary: "#64748b", optionHighlightColor: "#f8fafc", optionSelectedBg: "#343a45" }
       }
     ].forEach(preset => {
       const presetBtn = document.createElement("button");
@@ -4329,15 +4364,23 @@ function renderThemeEditor() {
     });
 
     const quickRow = document.createElement("div");
-    quickRow.className = "builder-row builder-row-3";
+    quickRow.className = "builder-row builder-row-4";
     quickRow.append(
       createBuilderField("\u0410\u043a\u0446\u0435\u043d\u0442", createColorInput(getThemeColorValue(cfg, "heroAccent", "--hero-accent", "#d9ff3f"), value => {
         state.uiConfig.heroAccent = value;
         applySchemaChanges();
       })),
+      createBuilderField("\u0412\u044b\u0434\u0435\u043b\u0435\u043d\u0438\u0435 \u0432\u0430\u0440\u0438\u0430\u043d\u0442\u0430", createColorInput(getThemeColorValue(cfg, "optionHighlightColor", "--option-highlight-color", cfg.heroAccent || "#d9ff3f"), value => {
+        state.uiConfig.optionHighlightColor = value;
+        applySchemaChanges();
+      })),
       createBuilderField("\u041e\u0441\u043d\u043e\u0432\u043d\u0430\u044f \u043a\u043d\u043e\u043f\u043a\u0430", createColorInput(getThemeColorValue(cfg, "buttonPrimaryStart", "--button-primary-start", "#0f766e"), value => {
         state.uiConfig.buttonPrimaryStart = value;
         state.uiConfig.buttonPrimaryEnd = value;
+        applySchemaChanges();
+      })),
+      createBuilderField("\u0424\u043e\u043d \u0432\u044b\u0431\u0440\u0430\u043d\u043d\u043e\u0433\u043e", createColorInput(getThemeColorValue(cfg, "optionSelectedBg", "--option-selected-bg", "#2c3213"), value => {
+        state.uiConfig.optionSelectedBg = value;
         applySchemaChanges();
       })),
       createBuilderField("\u0424\u043e\u043d", createColorInput(getThemeColorValue(cfg, "pageBgMid", "--page-bg-mid", "#262b34"), value => {
@@ -4448,8 +4491,16 @@ function renderThemeEditor() {
       }))
     );
     const row7 = document.createElement("div");
-    row7.className = "builder-row builder-row-2";
+    row7.className = "builder-row builder-row-4";
     row7.append(
+      createBuilderField("\u0412\u044b\u0434\u0435\u043b\u0435\u043d\u0438\u0435 \u0432\u0430\u0440\u0438\u0430\u043d\u0442\u0430", createColorInput(getThemeColorValue(cfg, "optionHighlightColor", "--option-highlight-color", cfg.heroAccent || "#d9ff3f"), value => {
+        state.uiConfig.optionHighlightColor = value;
+        applySchemaChanges();
+      })),
+      createBuilderField("\u0424\u043e\u043d \u0432\u044b\u0431\u0440\u0430\u043d\u043d\u043e\u0433\u043e", createColorInput(getThemeColorValue(cfg, "optionSelectedBg", "--option-selected-bg", "#2c3213"), value => {
+        state.uiConfig.optionSelectedBg = value;
+        applySchemaChanges();
+      })),
       createBuilderField("\u0422\u0430\u0431\u043b\u0438\u0446\u0430 \u0438\u0442\u043e\u0433\u043e\u0432: \u0432\u0435\u0440\u0445", createColorInput(getThemeColorValue(cfg, "checkTableStart", "--check-table-start", "#161920"), value => {
         state.uiConfig.checkTableStart = value;
         applySchemaChanges();
