@@ -4,10 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Форма выбора</title>
-  <link rel="icon" type="image/svg+xml" href="favicon.svg?v=20260331f" />
-  <link rel="stylesheet" href="style.css?v=20260331f" />
+  <link rel="icon" type="image/svg+xml" href="favicon.svg?v=20260421a" />
+  <link rel="stylesheet" href="style.css?v=20260421a" />
 </head>
-<body data-page="form">
+<body data-page="form" class="app-booting">
   <div class="container">
     <div class="form-page-head">
       <h1 id="pageTitle">Командообразование ЦРС</h1>
@@ -31,22 +31,28 @@
     </section>
 
     <div id="profileCard" class="card">
-      <h3 id="userSectionTitle">1. Ваши данные</h3>
+      <h3 id="userSectionTitle">Личные данные</h3>
       <p id="userSectionHint" class="field-hint">Оставьте имя и группу, чтобы мы сохранили ваш выбор.</p>
       <div class="inputs-row">
         <input id="name" placeholder="ФИО" />
         <input id="group" placeholder="Группа" />
       </div>
+      <div id="hoursFieldWrap" class="inputs-row hours-row hidden-text">
+        <label class="builder-group">
+          <span class="field-label">Количество часов</span>
+          <input id="hours" type="number" min="1" step="1" value="1" placeholder="Количество часов" />
+        </label>
+      </div>
       <div id="profileError" class="error-text hidden-text"></div>
     </div>
 
-    <div class="stats-grid">
-      <div class="card stat-card">
-        <span id="participantsStatLabel" class="stat-label">Участников в группе</span>
+    <div id="statsGrid" class="stats-grid">
+      <div id="participantsStatCard" class="card stat-card">
+        <span id="participantsStatLabel" class="stat-label">В группе</span>
         <strong class="stat-value" id="participantsCount"></strong>
       </div>
-      <div class="card stat-card">
-        <span id="responsesStatLabel" class="stat-label">Уже заполнили</span>
+      <div id="responsesStatCard" class="card stat-card">
+        <span id="responsesStatLabel" class="stat-label">Заполнили форму</span>
         <strong class="stat-value" id="responsesCount">0</strong>
       </div>
     </div>
@@ -55,11 +61,14 @@
 
     <div class="result">
       <div class="price-main">
-        <span id="perPerson">Билет: 0 ₽</span>
+        <span id="perPerson">Цена билета: 0 ₽/чел</span>
       </div>
       <p id="submitStatus" class="submit-status">После отправки выбор сохранится, и его можно будет изменить позже.</p>
-      <button id="detailsBtn" type="button">Общий чек / Итого</button>
-      <button id="saveBtn" type="button">Отправить выбор</button>
+      <div class="result-actions">
+        <button id="detailsBtn" type="button">Общий чек / Итого</button>
+        <button id="clearSelectionBtn" type="button" class="button-secondary">Очистить выбор</button>
+        <button id="saveBtn" type="button">Отправить выбор</button>
+      </div>
     </div>
 
     <button id="scrollTopBtn" type="button" class="scroll-top-btn hidden-text" aria-label="Наверх">↑</button>
@@ -86,9 +95,9 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="config.runtime.js?v=20260331f"></script>
-  <script src="config.js?v=20260331f"></script>
-  <script src="api.js?v=20260331f"></script>
-  <script src="app.js?v=20260331f"></script>
+  <script src="config.runtime.js?v=20260421a"></script>
+  <script src="config.js?v=20260421a"></script>
+  <script src="api.js?v=20260421a"></script>
+  <script src="app.js?v=20260421a"></script>
 </body>
 </html>

@@ -4,7 +4,8 @@
   uiConfig: {},
   profile: {
     name: "",
-    group: ""
+    group: "",
+    hours: 1
   },
   meta: {
     submissionId: "",
@@ -125,6 +126,12 @@ const ui = {
   group: null,
   profileError: null,
   profileCard: null,
+  statsGrid: null,
+  participantsStatCard: null,
+  responsesStatCard: null,
+  hoursFieldWrap: null,
+  hours: null,
+  clearSelectionBtn: null,
   scrollTopBtn: null,
   loadingOverlay: null,
   loadingLabel: null,
@@ -434,6 +441,10 @@ function getResponsesHeaderLabel(header) {
       return "\u0413\u0440\u0443\u043f\u043f\u0430";
     case "perperson":
       return "\u0426\u0435\u043d\u0430 \u043d\u0430 \u0447\u0435\u043b\u043e\u0432\u0435\u043a\u0430";
+    case "hours":
+      return "\u0427\u0430\u0441\u044b";
+    case "total":
+      return "\u041e\u0431\u0449\u0438\u0439 \u0447\u0435\u043a";
     default:
       return text(normalized);
   }
@@ -697,8 +708,42 @@ function getProfileError() {
   return "";
 }
 
+function isPerPersonSuffixEnabled() {
+  return state.uiConfig?.showPerPersonSuffix !== false;
+}
+
+function isParticipantsStatVisible() {
+  return state.uiConfig?.showParticipantsStat !== false;
+}
+
+function isResponsesStatVisible() {
+  return state.uiConfig?.showResponsesStat !== false;
+}
+
+function isHoursFieldVisible() {
+  return Boolean(state.uiConfig?.showHoursField);
+}
+
+function getHoursCount() {
+  return parsePositiveCount(state.profile?.hours, 1);
+}
+
+function hasSelectedPriceType(priceType) {
+  let found = false;
+  forEachSelectedOption(getFields(), (_, option) => {
+    if (option.priceType === priceType) {
+      found = true;
+    }
+  });
+  return found;
+}
+
+function formatPerPersonValue(amount) {
+  return `${amount} \u20bd${isPerPersonSuffixEnabled() ? "/\u0447\u0435\u043b" : ""}`;
+}
+
 function formatPerPerson(amount, people) {
-  return `${Math.round(amount / people)} \u20bd/\u0447\u0435\u043b`;
+  return formatPerPersonValue(Math.round(amount / people));
 }
 
 function formatTotal(amount) {
@@ -770,7 +815,13 @@ function normalizeUiConfig(config) {
     detailsButtonLabel: cleanString(source.detailsButtonLabel || "\u041e\u0431\u0449\u0438\u0439 \u0447\u0435\u043a / \u0418\u0442\u043e\u0433\u043e"),
     saveButtonLabel: cleanString(source.saveButtonLabel || "\u041e\u0442\u043f\u0440\u0430\u0432\u0438\u0442\u044c \u0432\u044b\u0431\u043e\u0440"),
     resubmitButtonLabel: cleanString(source.resubmitButtonLabel || "\u041e\u0431\u043d\u043e\u0432\u0438\u0442\u044c \u043c\u043e\u0439 \u0432\u044b\u0431\u043e\u0440"),
+    clearButtonLabel: cleanString(source.clearButtonLabel || "\u041e\u0447\u0438\u0441\u0442\u0438\u0442\u044c \u0432\u044b\u0431\u043e\u0440"),
     draftStatusText: cleanString(source.draftStatusText || "\u041f\u043e\u0441\u043b\u0435 \u043e\u0442\u043f\u0440\u0430\u0432\u043a\u0438 \u0432\u044b\u0431\u043e\u0440 \u0441\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u0441\u044f, \u0438 \u0435\u0433\u043e \u043c\u043e\u0436\u043d\u043e \u0431\u0443\u0434\u0435\u0442 \u0438\u0437\u043c\u0435\u043d\u0438\u0442\u044c \u043f\u043e\u0437\u0436\u0435."),
+    hoursFieldLabel: cleanString(source.hoursFieldLabel || "\u041a\u043e\u043b\u0438\u0447\u0435\u0441\u0442\u0432\u043e \u0447\u0430\u0441\u043e\u0432"),
+    showPerPersonSuffix: source.showPerPersonSuffix !== false,
+    showParticipantsStat: source.showParticipantsStat !== false,
+    showResponsesStat: source.showResponsesStat !== false,
+    showHoursField: Boolean(source.showHoursField),
     buttonPrimaryStart: source.buttonPrimaryStart || "",
     buttonPrimaryEnd: source.buttonPrimaryEnd || "",
     buttonDetailsStart: source.buttonDetailsStart || "",
@@ -845,6 +896,7 @@ function appendDependencyRule(dependsOn, rule) {
 }
 
 function normalizeOption(option) {
+  const normalizedPriceType = cleanString(option?.priceType) || "fixed";
   return {
     value: cleanString(option?.value) || generateId("option"),
     label: cleanString(option?.label) || "\u041d\u043e\u0432\u044b\u0439 \u0432\u0430\u0440\u0438\u0430\u043d\u0442",
@@ -853,7 +905,7 @@ function normalizeOption(option) {
     mapUrl: cleanString(option?.mapUrl) || "",
     image: cleanString(option?.image) || "",
     price: Number(option?.price) || 0,
-    priceType: option?.priceType || "fixed",
+    priceType: ["fixed", "perPerson", "perHour", "negotiable"].includes(normalizedPriceType) ? normalizedPriceType : "fixed",
     promoText: cleanString(option?.promoText) || "",
     defaultSelected: Boolean(option?.defaultSelected),
     locked: Boolean(option?.locked)
@@ -937,6 +989,10 @@ function calcItem(option, people) {
     return option.price * people;
   }
 
+  if (option.priceType === "perHour") {
+    return option.price * getHoursCount();
+  }
+
   return 0;
 }
 
@@ -945,15 +1001,23 @@ function getOptionPriceLabel(option, people) {
     return option.promoText;
   }
 
+  if (option.priceType === "negotiable") {
+    return "\u0414\u043e\u0433\u043e\u0432\u043e\u0440\u043d\u0430\u044f";
+  }
+
   if (!option.price) {
     return "\u0411\u0435\u0441\u043f\u043b\u0430\u0442\u043d\u043e";
   }
 
   if (option.priceType === "fixed") {
-    return `${Math.round(option.price / people)} \u20bd/\u0447\u0435\u043b`;
+    return formatPerPersonValue(Math.round(option.price / people));
   }
 
-  return `${option.price} \u20bd/\u0447\u0435\u043b`;
+  if (option.priceType === "perHour") {
+    return `${option.price} \u20bd/\u0447\u0430\u0441`;
+  }
+
+  return formatPerPersonValue(option.price);
 }
 
 function getFieldPopularityMeta(field, value) {
@@ -1183,7 +1247,8 @@ function resetFormState() {
   state.values = {};
   state.profile = {
     name: "",
-    group: ""
+    group: "",
+    hours: 1
   };
   state.meta = {
     submissionId: generateSubmissionId(),
@@ -1743,6 +1808,7 @@ function renderField(field, container, index) {
     input.className = "date-field-input";
     input.value = appleMobile ? formatFormDateValue(selectedDateValue) : selectedDateValue;
     if (appleMobile) {
+      dateWrap.classList.add("date-field-wrap-ios");
       input.readOnly = true;
       input.placeholder = "\u0414\u0414.\u041c\u041c.\u0413\u0413\u0413\u0413";
     } else {
@@ -1758,10 +1824,21 @@ function renderField(field, container, index) {
       }
     });
 
-    dateWrap.appendChild(input);
+    if (!appleMobile) {
+      dateWrap.appendChild(input);
+    }
 
     const popularityMeta = getFieldPopularityMeta(field, selectedDateValue);
     dateWrap.appendChild(createDateCalendar(field, selectedDateValue));
+
+    if (appleMobile) {
+      const selectedDateNote = document.createElement("div");
+      selectedDateNote.className = "date-field-selected-note";
+      selectedDateNote.textContent = selectedDateValue
+        ? `\u0412\u044b\u0431\u0440\u0430\u043d\u043e: ${formatFormDateValue(selectedDateValue)}`
+        : "\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0434\u0430\u0442\u0443 \u0432 \u043a\u0430\u043b\u0435\u043d\u0434\u0430\u0440\u0435";
+      dateWrap.appendChild(selectedDateNote);
+    }
 
     if (selectedDateValue && popularityMeta.percent > 0) {
       dateWrap.dataset.popularity = getDatePopularityTone(popularityMeta.percent);
@@ -1840,48 +1917,82 @@ function calculateTotal() {
   });
 
   const ticketLabel = text(state.uiConfig.ticketLabel || getDefaultUiConfig().ticketLabel);
-  ui.perPerson.textContent = `${ticketLabel}: ${formatPerPerson(total, getPricingParticipantCount())}`;
+  const hasNegotiable = hasSelectedPriceType("negotiable");
+  let ticketValue = formatPerPerson(total, getPricingParticipantCount());
+  if (hasNegotiable && total > 0) {
+    ticketValue = `\u043e\u0442 ${ticketValue}`;
+  } else if (hasNegotiable && total === 0) {
+    ticketValue = "\u0414\u043e\u0433\u043e\u0432\u043e\u0440\u043d\u0430\u044f";
+  }
+  ui.perPerson.textContent = `${ticketLabel}: ${ticketValue}`;
   return total;
 }
 
 function generateDetails() {
   const rows = [];
   let total = 0;
+  const showPerPersonColumn = isPerPersonSuffixEnabled();
+  const showHoursColumn = isHoursFieldVisible() && hasSelectedPriceType("perHour");
+  const hasNegotiable = hasSelectedPriceType("negotiable");
 
   forEachSelectedOption(getFields(), (_, option) => {
     const sum = calcItem(option, getPricingParticipantCount());
     total += sum;
 
-    rows.push(`
-      <tr>
-        <td>${option.label}</td>
-        <td>${formatTotal(sum)}</td>
-        <td>${formatPerPerson(sum, getPricingParticipantCount())}</td>
-      </tr>
-    `);
+    const cells = [
+      `<td>${text(option.label)}</td>`,
+      `<td>${option.priceType === "negotiable" ? "\u0414\u043e\u0433\u043e\u0432\u043e\u0440\u043d\u0430\u044f" : formatTotal(sum)}</td>`
+    ];
+
+    if (showHoursColumn) {
+      cells.push(`<td>${option.priceType === "perHour" ? getHoursCount() : "\u2014"}</td>`);
+    }
+
+    if (showPerPersonColumn) {
+      cells.push(`<td>${option.priceType === "negotiable" ? "\u2014" : formatPerPerson(sum, getPricingParticipantCount())}</td>`);
+    }
+
+    rows.push(`<tr>${cells.join("")}</tr>`);
   });
 
-  rows.push(`
-    <tr class="check-table-total">
-      <td><b>\u0418\u0442\u043e\u0433\u043e</b></td>
-      <td><b>${formatTotal(total)}</b></td>
-      <td><b>${formatPerPerson(total, getPricingParticipantCount())}</b></td>
-    </tr>
-  `);
+  const totalCells = [
+    `<td><b>\u0418\u0442\u043e\u0433\u043e</b></td>`,
+    `<td><b>${formatTotal(total)}</b></td>`
+  ];
+  if (showHoursColumn) {
+    totalCells.push("<td><b>\u2014</b></td>");
+  }
+  if (showPerPersonColumn) {
+    totalCells.push(`<td><b>${formatPerPerson(total, getPricingParticipantCount())}</b></td>`);
+  }
+
+  rows.push(`<tr class="check-table-total">${totalCells.join("")}</tr>`);
+
+  const headCells = [
+    "<th>\u041f\u043e\u0437\u0438\u0446\u0438\u044f</th>",
+    "<th>\u041e\u0431\u0449\u0438\u0439 \u0447\u0435\u043a</th>"
+  ];
+  if (showHoursColumn) {
+    headCells.push("<th>\u0427\u0430\u0441\u044b</th>");
+  }
+  if (showPerPersonColumn) {
+    headCells.push("<th>\u041d\u0430 \u0447\u0435\u043b\u043e\u0432\u0435\u043a\u0430</th>");
+  }
+
+  const note = hasNegotiable
+    ? `<p class="check-table-note">\u041f\u043e\u0437\u0438\u0446\u0438\u0438 \u0441 \u0442\u0438\u043f\u043e\u043c \u00ab\u0414\u043e\u0433\u043e\u0432\u043e\u0440\u043d\u0430\u044f\u00bb \u043d\u0435 \u0432\u043a\u043b\u044e\u0447\u0435\u043d\u044b \u0432 \u0430\u0432\u0442\u043e\u0440\u0430\u0441\u0447\u0435\u0442.</p>`
+    : "";
 
   return `
     <div class="check-table-wrap">
       <table class="check-table">
         <thead>
-          <tr>
-            <th>\u041f\u043e\u0437\u0438\u0446\u0438\u044f</th>
-            <th>\u041e\u0431\u0449\u0438\u0439 \u0447\u0435\u043a</th>
-            <th>\u041d\u0430 \u0447\u0435\u043b\u043e\u0432\u0435\u043a\u0430</th>
-          </tr>
+          <tr>${headCells.join("")}</tr>
         </thead>
         <tbody>${rows.join("")}</tbody>
       </table>
     </div>
+    ${note}
   `;
 }
 
@@ -1956,12 +2067,41 @@ function applyUiConfig() {
     ui.participantsCount.textContent = getDisplayParticipantCount();
   }
 
+  if (ui.participantsStatCard) {
+    ui.participantsStatCard.style.display = isParticipantsStatVisible() ? "" : "none";
+  }
+
   if (ui.responsesStatLabel) {
     ui.responsesStatLabel.textContent = text(cfg.responsesStatLabel);
   }
 
+  if (ui.responsesStatCard) {
+    ui.responsesStatCard.style.display = isResponsesStatVisible() ? "" : "none";
+  }
+
+  if (ui.statsGrid) {
+    ui.statsGrid.style.display = isParticipantsStatVisible() || isResponsesStatVisible() ? "" : "none";
+  }
+
+  if (ui.hoursFieldWrap) {
+    ui.hoursFieldWrap.style.display = isHoursFieldVisible() ? "" : "none";
+    const labelNode = ui.hoursFieldWrap.querySelector(".field-label");
+    if (labelNode) {
+      labelNode.textContent = text(cfg.hoursFieldLabel);
+    }
+  }
+
+  if (ui.hours) {
+    ui.hours.placeholder = text(cfg.hoursFieldLabel);
+    ui.hours.setAttribute("aria-label", text(cfg.hoursFieldLabel));
+  }
+
   if (ui.detailsBtn && !state.isSubmitting) {
     ui.detailsBtn.textContent = text(cfg.detailsButtonLabel);
+  }
+
+  if (ui.clearSelectionBtn) {
+    ui.clearSelectionBtn.textContent = text(cfg.clearButtonLabel);
   }
 
   document.documentElement.style.setProperty("--button-primary-start", cfg.buttonPrimaryStart || getDefaultUiConfig().buttonPrimaryStart);
@@ -1995,6 +2135,9 @@ function updateSubmitUi() {
   ui.group.classList.toggle("input-error", isEmptyValue(state.profile.group));
   ui.detailsBtn.disabled = false;
   ui.saveBtn.disabled = state.isSubmitting;
+  if (ui.clearSelectionBtn) {
+    ui.clearSelectionBtn.disabled = state.isSubmitting;
+  }
   ui.saveBtn.textContent = state.isSubmitting ? "\u041e\u0442\u043f\u0440\u0430\u0432\u043a\u0430..." : state.meta.hasSubmitted ? text(state.uiConfig.resubmitButtonLabel || getDefaultUiConfig().resubmitButtonLabel) : text(state.uiConfig.saveButtonLabel || getDefaultUiConfig().saveButtonLabel);
   if (state.meta.hasSubmitted && state.meta.lastSubmittedAt && !state.isSubmitting) {
     ui.submitStatus.textContent = `\u0424\u043e\u0440\u043c\u0430 \u0443\u0436\u0435 \u043e\u0442\u043f\u0440\u0430\u0432\u043b\u0435\u043d\u0430. \u0412\u044b \u043c\u043e\u0436\u0435\u0442\u0435 \u0438\u0437\u043c\u0435\u043d\u0438\u0442\u044c \u0432\u044b\u0431\u043e\u0440 \u0438 \u043e\u0442\u043f\u0440\u0430\u0432\u0438\u0442\u044c \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u043d\u0443\u044e \u0432\u0435\u0440\u0441\u0438\u044e. \u041f\u043e\u0441\u043b\u0435\u0434\u043d\u0435\u0435 \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u0438\u0435: ${new Date(state.meta.lastSubmittedAt).toLocaleString("ru-RU")}`;
@@ -2060,7 +2203,8 @@ function hydrateDraft() {
   if (draft.profile && typeof draft.profile === "object") {
     state.profile = {
       name: draft.profile.name || "",
-      group: draft.profile.group || ""
+      group: draft.profile.group || "",
+      hours: parsePositiveCount(draft.profile.hours, 1)
     };
   }
 
@@ -2463,6 +2607,7 @@ function buildSubmissionPayload() {
     participants: getPricingParticipantCount(),
     pricingParticipants: getPricingParticipantCount(),
     displayParticipants: getDisplayParticipantCount(),
+    hours: getHoursCount(),
     schema: getFields(),
     answers: buildAnswersForSubmission(),
     summary: buildSelectedSummary(),
@@ -2570,9 +2715,24 @@ async function confirmModalAction() {
   }
 }
 
+function clearCurrentSelection() {
+  state.values = {};
+  initializeDefaults(getFields());
+  state.profile.hours = 1;
+  state.meta.hasSubmitted = false;
+  state.meta.lastSubmittedAt = "";
+  saveDraft();
+  refreshUI(true);
+  ui.submitStatus.textContent = "\u0412\u044b\u0431\u043e\u0440 \u043e\u0447\u0438\u0449\u0435\u043d.";
+}
+
 function bindProfileInputs() {
   ui.name.value = state.profile.name;
   ui.group.value = state.profile.group;
+  if (ui.hours) {
+    ui.hours.value = getHoursCount();
+    ui.hours.previousElementSibling && (ui.hours.previousElementSibling.textContent = text(state.uiConfig.hoursFieldLabel || getDefaultUiConfig().hoursFieldLabel));
+  }
 
   ui.name.addEventListener("input", event => {
     state.profile.name = event.target.value;
@@ -2585,6 +2745,15 @@ function bindProfileInputs() {
     saveDraft();
     refreshUI(false);
   });
+
+  if (ui.hours) {
+    ui.hours.addEventListener("input", event => {
+      state.profile.hours = parsePositiveCount(event.target.value, 1);
+      event.target.value = state.profile.hours;
+      saveDraft();
+      refreshUI(true);
+    });
+  }
 }
 
 function applySchemaChanges({ resetValues = false, rerenderBuilder = false } = {}) {
@@ -3260,7 +3429,9 @@ function renderOptionEditor(option, options, optionIndex, field) {
     }, "number")),
     createBuilderField("\u0422\u0438\u043f \u0446\u0435\u043d\u044b", createSelectInput(option.priceType || "fixed", [
       { value: "fixed", label: "\u0424\u0438\u043a\u0441\u0438\u0440\u043e\u0432\u0430\u043d\u043d\u0430\u044f" },
-      { value: "perPerson", label: "\u041d\u0430 \u0447\u0435\u043b\u043e\u0432\u0435\u043a" }
+      { value: "perPerson", label: "\u041d\u0430 \u0447\u0435\u043b\u043e\u0432\u0435\u043a" },
+      { value: "perHour", label: "\u0417\u0430 \u0447\u0430\u0441" },
+      { value: "negotiable", label: "\u0414\u043e\u0433\u043e\u0432\u043e\u0440\u043d\u0430\u044f" }
     ], value => {
       option.priceType = value;
       applySchemaChanges();
@@ -3401,7 +3572,9 @@ function renderOptionEditor(option, options, optionIndex, field) {
     }, "number"), "builder-group-compact"),
     createBuilderField("\u0422\u0438\u043f \u0446\u0435\u043d\u044b", createSelectInput(option.priceType || "fixed", [
       { value: "fixed", label: "\u0424\u0438\u043a\u0441\u0438\u0440." },
-      { value: "perPerson", label: "\u041d\u0430 \u0447\u0435\u043b." }
+      { value: "perPerson", label: "\u041d\u0430 \u0447\u0435\u043b." },
+      { value: "perHour", label: "\u0417\u0430 \u0447\u0430\u0441" },
+      { value: "negotiable", label: "\u0414\u043e\u0433\u043e\u0432\u043e\u0440\u043d\u0430\u044f" }
     ], value => {
       option.priceType = value;
       applySchemaChanges();
@@ -3785,6 +3958,41 @@ function renderUiConfigEditor() {
     }))
   );
 
+  const visibilityRow = document.createElement("div");
+  visibilityRow.className = "builder-row builder-row-2";
+  visibilityRow.append(
+    createBuilderField("\u0412\u0438\u0434\u0438\u043c\u044b\u0435 \u0441\u0447\u0435\u0442\u0447\u0438\u043a\u0438", (() => {
+      const wrap = document.createElement("div");
+      wrap.className = "builder-switches";
+      wrap.append(
+        createCheckbox("\u041f\u043e\u043a\u0430\u0437\u044b\u0432\u0430\u0442\u044c \u00ab\u0412 \u0433\u0440\u0443\u043f\u043f\u0435\u00bb", state.uiConfig.showParticipantsStat !== false, checked => {
+          state.uiConfig.showParticipantsStat = checked;
+          applySchemaChanges();
+        }),
+        createCheckbox("\u041f\u043e\u043a\u0430\u0437\u044b\u0432\u0430\u0442\u044c \u00ab\u0417\u0430\u043f\u043e\u043b\u043d\u0438\u043b\u0438 \u0444\u043e\u0440\u043c\u0443\u00bb", state.uiConfig.showResponsesStat !== false, checked => {
+          state.uiConfig.showResponsesStat = checked;
+          applySchemaChanges();
+        })
+      );
+      return wrap;
+    })()),
+    createBuilderField("\u0424\u043e\u0440\u043c\u0430\u0442 \u0446\u0435\u043d\u044b", (() => {
+      const wrap = document.createElement("div");
+      wrap.className = "builder-switches";
+      wrap.append(
+        createCheckbox("\u041f\u043e\u043a\u0430\u0437\u044b\u0432\u0430\u0442\u044c \u00ab/\u0447\u0435\u043b\u00bb \u0438 \u0441\u0442\u043e\u043b\u0431\u0435\u0446 \u00ab\u041d\u0430 \u0447\u0435\u043b\u043e\u0432\u0435\u043a\u0430\u00bb", state.uiConfig.showPerPersonSuffix !== false, checked => {
+          state.uiConfig.showPerPersonSuffix = checked;
+          applySchemaChanges();
+        }),
+        createCheckbox("\u041f\u043e\u043b\u0435 \u00ab\u041a\u043e\u043b\u0438\u0447\u0435\u0441\u0442\u0432\u043e \u0447\u0430\u0441\u043e\u0432\u00bb", Boolean(state.uiConfig.showHoursField), checked => {
+          state.uiConfig.showHoursField = checked;
+          applySchemaChanges({ resetValues: true });
+        })
+      );
+      return wrap;
+    })())
+  );
+
   const buttonRow = document.createElement("div");
   buttonRow.className = "builder-row builder-row-3";
   buttonRow.append(
@@ -3802,6 +4010,19 @@ function renderUiConfigEditor() {
     }))
   );
 
+  const extraButtonsRow = document.createElement("div");
+  extraButtonsRow.className = "builder-row builder-row-2";
+  extraButtonsRow.append(
+    createBuilderField("\u041a\u043d\u043e\u043f\u043a\u0430 \u043e\u0447\u0438\u0441\u0442\u0438\u0442\u044c \u0432\u044b\u0431\u043e\u0440", createTextInput(state.uiConfig.clearButtonLabel || "", value => {
+      state.uiConfig.clearButtonLabel = value;
+      applySchemaChanges();
+    })),
+    createBuilderField("\u041f\u043e\u043b\u0435 \u0447\u0430\u0441\u043e\u0432", createTextInput(state.uiConfig.hoursFieldLabel || "", value => {
+      state.uiConfig.hoursFieldLabel = value;
+      applySchemaChanges();
+    }))
+  );
+
   const draftRow = document.createElement("div");
   draftRow.className = "builder-row";
   draftRow.append(
@@ -3815,7 +4036,7 @@ function renderUiConfigEditor() {
     createBuilderPanelSection("\u041f\u0430\u0440\u0430\u043c\u0435\u0442\u0440\u044b \u0444\u043e\u0440\u043c\u044b", "\u0417\u0434\u0435\u0441\u044c \u043c\u043e\u0436\u043d\u043e \u0438\u0437\u043c\u0435\u043d\u0438\u0442\u044c \u043d\u0430\u0437\u0432\u0430\u043d\u0438\u0435 \u0444\u043e\u0440\u043c\u044b \u0438 \u0435\u0435 \u0430\u0434\u0440\u0435\u0441 \u0434\u043b\u044f \u043f\u0443\u0431\u043b\u0438\u0447\u043d\u043e\u0439 \u0441\u0441\u044b\u043b\u043a\u0438.", formMetaRow, formDangerRow),
     createBuilderPanelSection("Hero \u0438 \u0432\u0435\u0440\u0445 \u0444\u043e\u0440\u043c\u044b", "\u041a\u0440\u0443\u043f\u043d\u044b\u0435 \u0442\u0435\u043a\u0441\u0442\u044b \u0438 \u043f\u0440\u043e\u0434\u0430\u044e\u0449\u0438\u0435 \u043f\u043e\u0434\u043f\u0438\u0441\u0438 \u043f\u0435\u0440\u0432\u043e\u0433\u043e \u044d\u043a\u0440\u0430\u043d\u0430.", heroRow, heroMetaRow, heroTextRow),
     createBuilderPanelSection("\u041f\u043e\u043b\u044f \u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044f", "\u041f\u043e\u0434\u043f\u0438\u0441\u0438 \u0438 \u0442\u0435\u043a\u0441\u0442\u044b \u0431\u043b\u043e\u043a\u0430 \u0441 \u0438\u043c\u0435\u043d\u0435\u043c \u0438 \u0433\u0440\u0443\u043f\u043f\u043e\u0439.", userRow, userHintRow, countRow),
-    createBuilderPanelSection("\u041f\u043e\u0434\u043f\u0438\u0441\u0438 \u0438 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044f", "\u041a\u043d\u043e\u043f\u043a\u0438, \u0441\u0447\u0435\u0442\u0447\u0438\u043a\u0438 \u0438 \u0442\u0435\u043a\u0441\u0442 \u043f\u043e\u0441\u043b\u0435 \u043e\u0442\u043f\u0440\u0430\u0432\u043a\u0438.", labelsRow, buttonRow, draftRow)
+    createBuilderPanelSection("\u041f\u043e\u0434\u043f\u0438\u0441\u0438 \u0438 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044f", "\u041a\u043d\u043e\u043f\u043a\u0438, \u0441\u0447\u0435\u0442\u0447\u0438\u043a\u0438 \u0438 \u0442\u0435\u043a\u0441\u0442 \u043f\u043e\u0441\u043b\u0435 \u043e\u0442\u043f\u0440\u0430\u0432\u043a\u0438.", labelsRow, visibilityRow, buttonRow, extraButtonsRow, draftRow)
   );
 
   card.appendChild(sections);
@@ -5240,6 +5461,7 @@ async function initializeFormPage() {
 
     ui.detailsBtn.addEventListener("click", openDetails);
     ui.saveBtn.addEventListener("click", submitForm);
+    ui.clearSelectionBtn?.addEventListener("click", clearCurrentSelection);
     ui.closeModal.addEventListener("click", closeDetails);
     ui.confirmCancelBtn.addEventListener("click", closeConfirmModal);
     ui.confirmSubmitBtn.addEventListener("click", confirmModalAction);
@@ -5360,8 +5582,12 @@ document.addEventListener("DOMContentLoaded", async () => {
   ui.perPerson = document.getElementById("perPerson");
   ui.participantsCount = document.getElementById("participantsCount");
   ui.responsesCount = document.getElementById("responsesCount");
+  ui.statsGrid = document.getElementById("statsGrid");
+  ui.participantsStatCard = document.getElementById("participantsStatCard");
+  ui.responsesStatCard = document.getElementById("responsesStatCard");
   ui.detailsBtn = document.getElementById("detailsBtn");
   ui.saveBtn = document.getElementById("saveBtn");
+  ui.clearSelectionBtn = document.getElementById("clearSelectionBtn");
   ui.submitStatus = document.getElementById("submitStatus");
   ui.detailsModal = document.getElementById("detailsModal");
   ui.detailsContent = document.getElementById("detailsContent");
@@ -5409,16 +5635,22 @@ document.addEventListener("DOMContentLoaded", async () => {
   ui.responsesStatLabel = document.getElementById("responsesStatLabel");
   ui.name = document.getElementById("name");
   ui.group = document.getElementById("group");
+  ui.hoursFieldWrap = document.getElementById("hoursFieldWrap");
+  ui.hours = document.getElementById("hours");
   ui.profileError = document.getElementById("profileError");
   ui.profileCard = document.getElementById("profileCard");
   ui.scrollTopBtn = document.getElementById("scrollTopBtn");
 
-  await initializeCommonData();
+  try {
+    await initializeCommonData();
 
-  if (isBuilderPage()) {
-    await initializeBuilderPage();
-    return;
+    if (isBuilderPage()) {
+      await initializeBuilderPage();
+      return;
+    }
+
+    await initializeFormPage();
+  } finally {
+    document.body.classList.remove("app-booting");
   }
-
-  await initializeFormPage();
 });

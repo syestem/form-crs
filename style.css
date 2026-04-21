@@ -42,6 +42,10 @@ body {
   min-height: 100vh;
 }
 
+body.app-booting .container {
+  visibility: hidden;
+}
+
 body[data-page="form"] {
   position: relative;
 }
@@ -1210,6 +1214,11 @@ input {
   border: 1px solid rgba(217, 255, 63, 0.12);
 }
 
+.result-actions {
+  display: grid;
+  gap: 10px;
+}
+
 .scroll-top-btn {
   position: fixed;
   right: 20px;
@@ -1259,6 +1268,11 @@ button:disabled {
 
 #detailsBtn {
   background: linear-gradient(135deg, var(--button-details-start), var(--button-details-end));
+}
+
+#clearSelectionBtn {
+  background: var(--button-secondary-bg);
+  color: var(--button-secondary-text);
 }
 
 .button-secondary {
@@ -1859,9 +1873,9 @@ button:disabled {
 
 .builder-dependency-remove-group {
   width: fit-content;
-  min-width: 92px;
-  min-height: 36px !important;
-  padding: 0 14px !important;
+  min-width: 72px;
+  min-height: 32px !important;
+  padding: 0 10px !important;
   font-size: 11px !important;
   align-self: start;
 }
@@ -1871,12 +1885,12 @@ button:disabled {
 }
 
 .builder-dependency-joiner-select {
-  width: 72px !important;
-  min-width: 72px !important;
-  max-width: 72px !important;
-  min-height: 32px !important;
-  padding: 4px 8px !important;
-  font-size: 11px !important;
+  width: 58px !important;
+  min-width: 58px !important;
+  max-width: 58px !important;
+  min-height: 30px !important;
+  padding: 2px 6px !important;
+  font-size: 10px !important;
 }
 
 .builder-save-indicator {
@@ -1952,7 +1966,7 @@ button:disabled {
   min-width: 44px;
   width: 44px;
   height: 40px;
-  margin: 14px 0;
+  margin: 14px 8px 14px 0;
   padding: 0;
   border-radius: 12px;
   font-size: 22px;
@@ -1963,7 +1977,7 @@ button:disabled {
 }
 
 .builder-dependency-add-btn {
-  margin: 16px 0 14px !important;
+  margin: 18px 10px 16px 0 !important;
 }
 
 .builder-outline-note {
@@ -2179,9 +2193,9 @@ button:disabled {
 }
 
 .check-table td:nth-child(2),
-.check-table td:nth-child(3),
 .check-table th:nth-child(2),
-.check-table th:nth-child(3) {
+.check-table td:last-child,
+.check-table th:last-child {
   text-align: right;
 }
 
@@ -2191,6 +2205,13 @@ button:disabled {
 
 .check-table-total td {
   background: color-mix(in srgb, var(--hero-accent) 12%, var(--check-table-end));
+}
+
+.check-table-note {
+  margin: 10px 4px 0;
+  color: rgba(243, 246, 239, 0.72);
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 .modal-content .check-table-wrap::-webkit-scrollbar,
@@ -2465,6 +2486,14 @@ button:disabled {
     text-align: center;
   }
 
+  .date-field-wrap-ios {
+    padding-top: 12px;
+  }
+
+  .date-field-wrap-ios .date-field-input {
+    display: none;
+  }
+
   .date-calendar {
     gap: 6px;
   }
@@ -2496,13 +2525,13 @@ button:disabled {
   }
 
   .builder-dependency-joiner-select {
-    width: 68px !important;
-    min-width: 68px !important;
-    max-width: 68px !important;
+    width: 58px !important;
+    min-width: 58px !important;
+    max-width: 58px !important;
   }
 
   .builder-dependency-remove-group {
-    min-width: 88px;
+    min-width: 72px;
   }
 
   .builder-responses-summary {
@@ -2722,6 +2751,12 @@ button:disabled {
   line-height: 1.4;
   color: rgba(246, 248, 241, 0.8);
   padding-top: 2px;
+}
+
+.date-field-selected-note {
+  font-size: 12px;
+  line-height: 1.4;
+  color: rgba(246, 248, 241, 0.8);
 }
 
 .date-calendar {
