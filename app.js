@@ -1727,11 +1727,11 @@ function createOptionNode(field, option, people) {
   selector.append(control, label);
   topRow.appendChild(selector);
 
-  if (option.locked && option.promoText) {
-    const promoBadge = document.createElement("span");
-    promoBadge.className = "option-badge option-badge-promo";
-    promoBadge.textContent = text(option.promoText);
-    topRow.appendChild(promoBadge);
+  if (option.locked) {
+    const lockedBadge = document.createElement("span");
+    lockedBadge.className = `option-badge ${option.promoText ? "option-badge-promo" : "option-badge-locked"}`;
+    lockedBadge.textContent = text(option.promoText || "Недоступно");
+    topRow.appendChild(lockedBadge);
   }
 
   content.appendChild(topRow);
@@ -1747,6 +1747,13 @@ function createOptionNode(field, option, people) {
   price.className = "option-price";
   price.textContent = getOptionPriceLabel(option, people);
   content.appendChild(price);
+
+  if (option.locked) {
+    const lockNote = document.createElement("span");
+    lockNote.className = "option-lock-note";
+    lockNote.textContent = "Этот вариант сейчас заблокирован в конструкторе и недоступен для выбора.";
+    content.appendChild(lockNote);
+  }
 
   const popularity = getPopularityText(field, option);
   if (popularity) {

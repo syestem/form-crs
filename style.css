@@ -741,6 +741,12 @@ input {
   border: 1px solid #86efac;
 }
 
+.option-badge-locked {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(245, 247, 241, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+}
+
 .option-description {
   color: #62716b;
   font-size: 14px;
@@ -767,6 +773,12 @@ input {
 .option-popularity {
   color: var(--option-highlight-color);
   font-size: 13px;
+}
+
+.option-lock-note {
+  color: rgba(247, 250, 239, 0.66);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .option-media {
@@ -1229,8 +1241,9 @@ input {
 }
 
 .option-locked {
-  opacity: 1;
-  cursor: default;
+  opacity: 0.72;
+  cursor: not-allowed;
+  filter: saturate(0.72);
 }
 
 .option-locked:disabled {
@@ -1239,7 +1252,13 @@ input {
 
 .option-locked:hover {
   transform: none;
-  border-color: #10b981;
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.option-shell-locked {
+  border-style: dashed;
+  border-color: rgba(255, 255, 255, 0.18);
+  box-shadow: none;
 }
 
 .result {
