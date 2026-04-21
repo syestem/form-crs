@@ -775,6 +775,31 @@ input {
   font-size: 13px;
 }
 
+.option-quantity {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.option-quantity-label {
+  color: rgba(247, 250, 239, 0.72);
+  font-size: 13px;
+}
+
+.option-quantity-input {
+  width: 88px;
+  min-width: 88px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(12, 16, 22, 0.78);
+  color: #f5f7f1;
+  font: inherit;
+  text-align: center;
+}
+
 .option-lock-note {
   color: rgba(247, 250, 239, 0.66);
   font-size: 12px;

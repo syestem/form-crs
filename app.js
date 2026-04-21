@@ -21,6 +21,7 @@
     optionCounts: {}
   },
   optionDetailsOpen: {},
+  optionQuantities: {},
   dateCalendarMonths: {},
   schemaSync: {
     timerId: 0,
@@ -727,6 +728,39 @@ function getProfileError() {
   return "";
 }
 
+function getOptionQuantityKey(fieldId, optionValue) {
+  return `${cleanString(fieldId)}::${cleanString(optionValue)}`;
+}
+
+function getOptionQuantity(fieldId, optionValue) {
+  const key = getOptionQuantityKey(fieldId, optionValue);
+  return parsePositiveCount(state.optionQuantities?.[key], 1);
+}
+
+function setOptionQuantity(fieldId, optionValue, quantity) {
+  const key = getOptionQuantityKey(fieldId, optionValue);
+  state.optionQuantities[key] = parsePositiveCount(quantity, 1);
+}
+
+function clearOptionQuantity(fieldId, optionValue) {
+  const key = getOptionQuantityKey(fieldId, optionValue);
+  delete state.optionQuantities[key];
+}
+
+function getManagedQuantityKeys() {
+  const managed = new Set();
+  getFields().forEach(field => {
+    (field.options || []).forEach(option => {
+      const targetFieldId = cleanString(option.quantitySyncFieldId);
+      const targetOptionValue = cleanString(option.quantitySyncOptionValue);
+      if (targetFieldId && targetOptionValue) {
+        managed.add(getOptionQuantityKey(targetFieldId, targetOptionValue));
+      }
+    });
+  });
+  return managed;
+}
+
 function isPerPersonSuffixEnabled() {
   return state.uiConfig?.showPerPersonSuffix !== false;
 }
@@ -938,6 +972,9 @@ function normalizeOption(option) {
     promoText: cleanString(option?.promoText) || "",
     defaultSelected: Boolean(option?.defaultSelected),
     locked: Boolean(option?.locked),
+    allowQuantity: Boolean(option?.allowQuantity),
+    quantitySyncFieldId: cleanString(option?.quantitySyncFieldId) || "",
+    quantitySyncOptionValue: cleanString(option?.quantitySyncOptionValue) || "",
     dependsOn: normalizeDependencies(option?.dependsOn)
   };
 }
@@ -1006,21 +1043,21 @@ function normalizeSchema(fields) {
   });
 }
 
-function calcItem(option, people) {
+function calcItem(option, people, quantity = 1) {
   if (!option || !option.price) {
     return 0;
   }
 
   if (option.priceType === "fixed") {
-    return option.price;
+    return option.price * quantity;
   }
 
   if (option.priceType === "perPerson") {
-    return option.price * people;
+    return option.price * people * quantity;
   }
 
   if (option.priceType === "perHour") {
-    return option.price * getHoursCount();
+    return option.price * getHoursCount() * quantity;
   }
 
   return 0;
@@ -1245,9 +1282,11 @@ function toggleOption(field, optionValue) {
 
     if (current.includes(optionValue)) {
       state.values[field.id] = current.filter(value => value !== optionValue);
+      clearOptionQuantity(field.id, optionValue);
     } else {
       current.push(optionValue);
       state.values[field.id] = current;
+      setOptionQuantity(field.id, optionValue, 1);
     }
 
     return;
@@ -1264,6 +1303,9 @@ function initializeDefaults(fields) {
       const lockedDefaults = field.options?.filter(option => option.defaultSelected).map(option => option.value) || [];
       const currentValues = Array.isArray(state.values[field.id]) ? state.values[field.id] : [];
       state.values[field.id] = [...new Set([...currentValues, ...lockedDefaults])];
+      state.values[field.id].forEach(optionValue => {
+        setOptionQuantity(field.id, optionValue, getOptionQuantity(field.id, optionValue));
+      });
     } else if (field.type === "single") {
       const defaultOption = field.options?.find(option => option.defaultSelected);
       if (defaultOption && isEmptyValue(state.values[field.id])) {
@@ -1275,6 +1317,7 @@ function initializeDefaults(fields) {
 
 function resetFormState() {
   state.values = {};
+  state.optionQuantities = {};
   state.profile = {
     name: "",
     group: "",
@@ -1291,6 +1334,7 @@ function resetFormState() {
 
 function rebuildValuesForCurrentSchema() {
   state.values = {};
+  state.optionQuantities = {};
   initializeDefaults(getFields());
 }
 
@@ -1412,6 +1456,63 @@ function syncDependentOptionSelections() {
         state.values[field.id] = nextValue;
         changed = true;
       }
+    }
+  });
+
+  return changed;
+}
+
+function syncLinkedOptionQuantities() {
+  const aggregates = new Map();
+
+  getFields().forEach(field => {
+    if (field.type !== "multi") {
+      return;
+    }
+
+    (field.options || []).forEach(option => {
+      const targetFieldId = cleanString(option.quantitySyncFieldId);
+      const targetOptionValue = cleanString(option.quantitySyncOptionValue);
+      if (!targetFieldId || !targetOptionValue) {
+        return;
+      }
+      if (!isOptionSelected(field, option)) {
+        return;
+      }
+
+      const quantity = option.allowQuantity ? getOptionQuantity(field.id, option.value) : 1;
+      const key = getOptionQuantityKey(targetFieldId, targetOptionValue);
+      aggregates.set(key, (aggregates.get(key) || 0) + Math.max(1, quantity));
+    });
+  });
+
+  let changed = false;
+  const managedKeys = getManagedQuantityKeys();
+
+  getFields().forEach(field => {
+    if (field.type !== "multi") {
+      return;
+    }
+
+    const currentValues = Array.isArray(state.values[field.id]) ? [...state.values[field.id]] : [];
+    const nextValues = currentValues.filter(optionValue => !managedKeys.has(getOptionQuantityKey(field.id, optionValue)));
+
+    (field.options || []).forEach(option => {
+      const key = getOptionQuantityKey(field.id, option.value);
+      const quantity = Number(aggregates.get(key) || 0);
+      if (quantity > 0) {
+        if (!nextValues.includes(option.value)) {
+          nextValues.push(option.value);
+        }
+        setOptionQuantity(field.id, option.value, quantity);
+      } else if (managedKeys.has(key)) {
+        clearOptionQuantity(field.id, option.value);
+      }
+    });
+
+    if (JSON.stringify(nextValues) !== JSON.stringify(currentValues)) {
+      state.values[field.id] = nextValues;
+      changed = true;
     }
   });
 
@@ -1748,6 +1849,57 @@ function createOptionNode(field, option, people) {
   price.textContent = getOptionPriceLabel(option, people);
   content.appendChild(price);
 
+  if (field.type === "multi" && option.allowQuantity && isOptionSelected(field, option) && !option.locked) {
+    const quantityWrap = document.createElement("div");
+    quantityWrap.className = "option-quantity";
+
+    const quantityLabel = document.createElement("span");
+    quantityLabel.className = "option-quantity-label";
+    quantityLabel.textContent = "Количество";
+
+    const quantityInput = document.createElement("input");
+    quantityInput.type = "number";
+    quantityInput.min = "1";
+    quantityInput.step = "1";
+    quantityInput.value = String(getOptionQuantity(field.id, option.value));
+    quantityInput.className = "option-quantity-input";
+    quantityInput.addEventListener("click", event => {
+      event.stopPropagation();
+    });
+    quantityInput.addEventListener("focus", event => {
+      event.stopPropagation();
+      window.setTimeout(() => {
+        try {
+          event.target.select();
+        } catch {
+          // noop
+        }
+      }, 0);
+    });
+    quantityInput.addEventListener("input", event => {
+      event.stopPropagation();
+      const rawValue = cleanString(event.target.value).replace(/[^\d]/g, "");
+      event.target.value = rawValue;
+      if (!rawValue) {
+        return;
+      }
+      setOptionQuantity(field.id, option.value, rawValue);
+      saveDraft();
+      refreshUI(false);
+    });
+    quantityInput.addEventListener("blur", event => {
+      event.stopPropagation();
+      const nextValue = parsePositiveCount(event.target.value, 1);
+      setOptionQuantity(field.id, option.value, nextValue);
+      event.target.value = String(nextValue);
+      saveDraft();
+      refreshUI(false);
+    });
+
+    quantityWrap.append(quantityLabel, quantityInput);
+    content.appendChild(quantityWrap);
+  }
+
   if (option.locked) {
     const lockNote = document.createElement("span");
     lockNote.className = "option-lock-note";
@@ -2066,15 +2218,16 @@ function generateDetails() {
   const showHoursColumn = isHoursFieldVisible() && hasSelectedPriceType("perHour");
   const hasNegotiable = hasSelectedPriceType("negotiable");
 
-  forEachSelectedOption(getFields(), (_, option) => {
-    const sum = calcItem(option, getPricingParticipantCount());
+  forEachSelectedOption(getFields(), (field, option) => {
+    const quantity = option.allowQuantity ? getOptionQuantity(field.id, option.value) : 1;
+    const sum = calcItem(option, getPricingParticipantCount(), quantity);
     total += sum;
     const isPerHour = option.priceType === "perHour";
 
     if (showHoursColumn) {
       const cells = [
         `<td>${text(option.label)}</td>`,
-        `<td>${isPerHour ? getHoursCount() : "\u2014"}</td>`,
+        `<td>${isPerHour ? getHoursCount() * quantity : "\u2014"}</td>`,
         `<td class="check-table-multiply">${isPerHour ? "\u00d7" : "\u2014"}</td>`,
         `<td>${isPerHour ? formatTotal(option.price) : "\u2014"}</td>`,
         `<td>${option.priceType === "negotiable" ? "\u0414\u043e\u0433\u043e\u0432\u043e\u0440\u043d\u0430\u044f" : formatTotal(sum)}</td>`
@@ -2343,11 +2496,12 @@ function updateSubmitUi() {
 
 function refreshUI(shouldRender) {
   const syncedDependentSelections = syncDependentOptionSelections();
-  if (syncedDependentSelections) {
+  const syncedLinkedQuantities = syncLinkedOptionQuantities();
+  if (syncedDependentSelections || syncedLinkedQuantities) {
     saveDraft();
   }
 
-  if (shouldRender || syncedDependentSelections) {
+  if (shouldRender || syncedDependentSelections || syncedLinkedQuantities) {
     renderAll();
   }
 
@@ -2382,6 +2536,7 @@ function readDraft() {
 function saveDraft() {
   const draft = {
     values: state.values,
+    optionQuantities: state.optionQuantities,
     profile: state.profile,
     meta: state.meta
   };
@@ -2406,6 +2561,10 @@ function hydrateDraft() {
       group: draft.profile.group || "",
       hours: parsePositiveCount(draft.profile.hours, 1)
     };
+  }
+
+  if (draft.optionQuantities && typeof draft.optionQuantities === "object") {
+    state.optionQuantities = { ...draft.optionQuantities };
   }
 
   if (draft.meta && typeof draft.meta === "object") {
@@ -2784,6 +2943,7 @@ async function deleteSelectedResponses() {
 
 function buildAnswersForSubmission(fields = getFields()) {
   const answers = {};
+  const optionQuantities = {};
 
   forEachVisibleField(fields, field => {
     const value = state.values[field.id];
@@ -2797,6 +2957,12 @@ function buildAnswersForSubmission(fields = getFields()) {
 
       if (filteredValues.length) {
         answers[field.id] = filteredValues;
+        filteredValues.forEach(optionValue => {
+          const option = findOption(field, optionValue);
+          if (option?.allowQuantity) {
+            optionQuantities[getOptionQuantityKey(field.id, optionValue)] = getOptionQuantity(field.id, optionValue);
+          }
+        });
       }
     } else if (field.type === "single") {
       const option = findOption(field, value);
@@ -2808,6 +2974,10 @@ function buildAnswersForSubmission(fields = getFields()) {
     }
 
   });
+
+  if (Object.keys(optionQuantities).length) {
+    answers.__optionQuantities = optionQuantities;
+  }
 
   return answers;
 }
@@ -2823,7 +2993,7 @@ function buildSelectedSummary() {
     summary.push({
       fieldId: field.id,
       value: option.value,
-      label: option.label
+      label: option.allowQuantity ? `${option.label} x${getOptionQuantity(field.id, option.value)}` : option.label
     });
   });
 
@@ -3099,6 +3269,9 @@ function createOptionTemplate() {
     promoText: "",
     defaultSelected: false,
     locked: false,
+    allowQuantity: false,
+    quantitySyncFieldId: "",
+    quantitySyncOptionValue: "",
     dependsOn: normalizeDependencies()
   };
 }
@@ -3318,6 +3491,27 @@ function getDependencyTargets(currentFieldId) {
       value: field.id,
       label: `${getFieldDisplayName(field)} (${field.id})`
     })));
+}
+
+function getQuantitySyncFieldChoices(currentFieldId) {
+  return [{
+    value: "",
+    label: "Не выбрано"
+  }].concat(getFields()
+    .filter(field => field.id !== currentFieldId && (field.type === "multi" || field.type === "single"))
+    .map(field => ({
+      value: field.id,
+      label: `${getFieldDisplayName(field)} (${field.id})`
+    })));
+}
+
+function getQuantitySyncOptionChoices(fieldId) {
+  const targetField = getFieldById(fieldId);
+  const options = Array.isArray(targetField?.options) ? targetField.options : [];
+  return [{ value: "", label: "Не выбрано" }].concat(options.map(option => ({
+    value: option.value,
+    label: option.label || option.value
+  })));
 }
 
 function createDragHandle(title) {
@@ -3879,6 +4073,36 @@ function renderOptionEditor(option, options, optionIndex, field) {
     })())
   );
   card.appendChild(row3);
+
+  if (field.type === "multi") {
+    const rowQuantity = document.createElement("div");
+    rowQuantity.className = "builder-row builder-row-3";
+    rowQuantity.append(
+      createBuilderField("\u041a\u043e\u043b\u0438\u0447\u0435\u0441\u0442\u0432\u043e", (() => {
+        const wrap = document.createElement("div");
+        wrap.className = "builder-switches";
+        wrap.append(createCheckbox("\u0420\u0430\u0437\u0440\u0435\u0448\u0438\u0442\u044c \u0443\u043a\u0430\u0437\u044b\u0432\u0430\u0442\u044c \u043a\u043e\u043b-\u0432\u043e", option.allowQuantity, checked => {
+          option.allowQuantity = checked;
+          if (!checked) {
+            option.quantitySyncFieldId = "";
+            option.quantitySyncOptionValue = "";
+          }
+          applySchemaChanges({ resetValues: true, rerenderBuilder: true });
+        }));
+        return wrap;
+      })()),
+      createBuilderField("\u0421\u0438\u043d\u0445\u0440\u043e\u043d. \u043f\u0443\u043d\u043a\u0442", createSelectInput(option.quantitySyncFieldId || "", getQuantitySyncFieldChoices(field.id), value => {
+        option.quantitySyncFieldId = value;
+        option.quantitySyncOptionValue = "";
+        applySchemaChanges({ resetValues: true, rerenderBuilder: true });
+      })),
+      createBuilderField("\u0421\u0438\u043d\u0445\u0440\u043e\u043d. \u0432\u0430\u0440\u0438\u0430\u043d\u0442", createSelectInput(option.quantitySyncOptionValue || "", getQuantitySyncOptionChoices(option.quantitySyncFieldId), value => {
+        option.quantitySyncOptionValue = value;
+        applySchemaChanges({ resetValues: true, rerenderBuilder: true });
+      }))
+    );
+    card.appendChild(rowQuantity);
+  }
 
   const optionDependencyKey = `option:${field.id}:${option.value || optionIndex}`;
   const optionDependencyActions = document.createElement("div");
