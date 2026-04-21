@@ -1273,7 +1273,7 @@ function findOption(field, optionValue) {
 
 function matchesDependency(rule) {
   if (!rule?.fieldId) {
-    return true;
+    return false;
   }
 
   const currentValue = state.values[rule.fieldId];
@@ -1293,35 +1293,38 @@ function matchesDependency(rule) {
 }
 
 function evaluateDependencyGroup(group) {
-  if (!group?.rules?.length) {
-    return true;
+  const activeRules = (group?.rules || []).filter(rule => cleanString(rule?.fieldId || ""));
+  if (!activeRules.length) {
+    return false;
   }
 
   return group.joiner === "or"
-    ? group.rules.some(matchesDependency)
-    : group.rules.every(matchesDependency);
+    ? activeRules.some(matchesDependency)
+    : activeRules.every(matchesDependency);
 }
 
 function isFieldVisible(field) {
   const visibility = normalizeDependencies(field.dependsOn);
-  if (!visibility.groups.length) {
+  const activeGroups = visibility.groups.filter(group => (group.rules || []).some(rule => cleanString(rule?.fieldId || "")));
+  if (!activeGroups.length) {
     return true;
   }
 
   return visibility.joiner === "or"
-    ? visibility.groups.some(evaluateDependencyGroup)
-    : visibility.groups.every(evaluateDependencyGroup);
+    ? activeGroups.some(evaluateDependencyGroup)
+    : activeGroups.every(evaluateDependencyGroup);
 }
 
 function isOptionVisible(option) {
   const visibility = normalizeDependencies(option?.dependsOn);
-  if (!visibility.groups.length) {
+  const activeGroups = visibility.groups.filter(group => (group.rules || []).some(rule => cleanString(rule?.fieldId || "")));
+  if (!activeGroups.length) {
     return true;
   }
 
   return visibility.joiner === "or"
-    ? visibility.groups.some(evaluateDependencyGroup)
-    : visibility.groups.every(evaluateDependencyGroup);
+    ? activeGroups.some(evaluateDependencyGroup)
+    : activeGroups.every(evaluateDependencyGroup);
 }
 
 function forEachVisibleField(fields, visitor) {
@@ -2585,7 +2588,7 @@ function buildAnswersForSubmission(fields = getFields()) {
       const selectedValues = Array.isArray(value) ? value : [];
       const filteredValues = selectedValues.filter(optionValue => {
         const option = findOption(field, optionValue);
-        return option && !option.locked;
+        return option && isOptionVisible(option) && !option.locked;
       });
 
       if (filteredValues.length) {
@@ -2593,7 +2596,7 @@ function buildAnswersForSubmission(fields = getFields()) {
       }
     } else if (field.type === "single") {
       const option = findOption(field, value);
-      if (option && !option.locked) {
+      if (option && isOptionVisible(option) && !option.locked) {
         answers[field.id] = value;
       }
     } else if ((field.type === "text" || field.type === "date") && !isEmptyValue(value)) {
