@@ -1327,6 +1327,70 @@ function isOptionVisible(option) {
     : activeGroups.every(evaluateDependencyGroup);
 }
 
+function hasOptionDependencies(option) {
+  const visibility = normalizeDependencies(option?.dependsOn);
+  return visibility.groups.some(group => (group.rules || []).some(rule => cleanString(rule?.fieldId || "")));
+}
+
+function syncDependentOptionSelections() {
+  let changed = false;
+
+  getFields().forEach(field => {
+    if (!Array.isArray(field.options) || !field.options.length) {
+      return;
+    }
+
+    const dependentOptions = field.options.filter(hasOptionDependencies);
+    if (!dependentOptions.length) {
+      return;
+    }
+
+    const visibleDependentOptions = dependentOptions.filter(isOptionVisible);
+
+    if (field.type === "multi") {
+      const currentValues = Array.isArray(state.values[field.id]) ? [...state.values[field.id]] : [];
+      const withoutHiddenDependent = currentValues.filter(value => {
+        const option = findOption(field, value);
+        return !option || !hasOptionDependencies(option) || isOptionVisible(option);
+      });
+      const merged = [...new Set([
+        ...withoutHiddenDependent,
+        ...visibleDependentOptions.map(option => option.value)
+      ])];
+
+      if (JSON.stringify(merged) !== JSON.stringify(currentValues)) {
+        state.values[field.id] = merged;
+        changed = true;
+      }
+      return;
+    }
+
+    if (field.type === "single") {
+      const currentValue = state.values[field.id];
+      const currentOption = findOption(field, currentValue);
+      let nextValue = currentValue ?? null;
+
+      if (currentOption && hasOptionDependencies(currentOption) && !isOptionVisible(currentOption)) {
+        nextValue = null;
+      }
+
+      if (visibleDependentOptions.length) {
+        const currentIsVisibleDependent = visibleDependentOptions.some(option => option.value === nextValue);
+        if (!currentIsVisibleDependent) {
+          nextValue = visibleDependentOptions[0].value;
+        }
+      }
+
+      if (nextValue !== currentValue) {
+        state.values[field.id] = nextValue;
+        changed = true;
+      }
+    }
+  });
+
+  return changed;
+}
+
 function forEachVisibleField(fields, visitor) {
   fields.forEach(field => {
     if (isFieldVisible(field)) {
@@ -2176,7 +2240,12 @@ function updateSubmitUi() {
 }
 
 function refreshUI(shouldRender) {
-  if (shouldRender) {
+  const syncedDependentSelections = syncDependentOptionSelections();
+  if (syncedDependentSelections) {
+    saveDraft();
+  }
+
+  if (shouldRender || syncedDependentSelections) {
     renderAll();
   }
 
