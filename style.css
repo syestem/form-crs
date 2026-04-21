@@ -1257,6 +1257,17 @@ input {
   border: 1px solid rgba(217, 255, 63, 0.12);
 }
 
+body.form-input-active .result {
+  opacity: 0;
+  transform: translateY(24px);
+  pointer-events: none;
+}
+
+body.form-input-active .scroll-top-btn {
+  opacity: 0;
+  pointer-events: none;
+}
+
 .result-actions {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -2425,6 +2436,14 @@ button:disabled {
 
   .result-clear-row {
     justify-content: center;
+  }
+
+  body.form-input-active .result {
+    visibility: hidden;
+  }
+
+  body.form-input-active .scroll-top-btn {
+    visibility: hidden;
   }
 
   h1 {
