@@ -2289,6 +2289,13 @@ button:disabled {
   text-align: right;
 }
 
+.check-table td.check-table-multiply,
+.check-table th.check-table-multiply {
+  text-align: center;
+  width: 44px;
+  min-width: 44px;
+}
+
 .check-table tbody tr:last-child td {
   border-bottom: none;
 }

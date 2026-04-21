@@ -2052,15 +2052,29 @@ function generateDetails() {
   forEachSelectedOption(getFields(), (_, option) => {
     const sum = calcItem(option, getPricingParticipantCount());
     total += sum;
+    const isPerHour = option.priceType === "perHour";
+
+    if (showHoursColumn) {
+      const cells = [
+        `<td>${text(option.label)}</td>`,
+        `<td>${isPerHour ? getHoursCount() : "\u2014"}</td>`,
+        `<td class="check-table-multiply">${isPerHour ? "\u00d7" : "\u2014"}</td>`,
+        `<td>${isPerHour ? formatTotal(option.price) : "\u2014"}</td>`,
+        `<td>${option.priceType === "negotiable" ? "\u0414\u043e\u0433\u043e\u0432\u043e\u0440\u043d\u0430\u044f" : formatTotal(sum)}</td>`
+      ];
+
+      if (showPerPersonColumn) {
+        cells.push(`<td>${option.priceType === "negotiable" ? "\u2014" : formatPerPerson(sum, getPricingParticipantCount())}</td>`);
+      }
+
+      rows.push(`<tr>${cells.join("")}</tr>`);
+      return;
+    }
 
     const cells = [
       `<td>${text(option.label)}</td>`,
       `<td>${option.priceType === "negotiable" ? "\u0414\u043e\u0433\u043e\u0432\u043e\u0440\u043d\u0430\u044f" : formatTotal(sum)}</td>`
     ];
-
-    if (showHoursColumn) {
-      cells.push(`<td>${option.priceType === "perHour" ? getHoursCount() : "\u2014"}</td>`);
-    }
 
     if (showPerPersonColumn) {
       cells.push(`<td>${option.priceType === "negotiable" ? "\u2014" : formatPerPerson(sum, getPricingParticipantCount())}</td>`);
@@ -2069,26 +2083,61 @@ function generateDetails() {
     rows.push(`<tr>${cells.join("")}</tr>`);
   });
 
-  const totalCells = [
-    `<td><b>\u0418\u0442\u043e\u0433\u043e</b></td>`,
-    `<td><b>${formatTotal(total)}</b></td>`
-  ];
   if (showHoursColumn) {
-    totalCells.push("<td><b>\u2014</b></td>");
-  }
-  if (showPerPersonColumn) {
-    totalCells.push(`<td><b>${formatPerPerson(total, getPricingParticipantCount())}</b></td>`);
+    const totalCells = [
+      `<td><b>\u0418\u0442\u043e\u0433\u043e</b></td>`,
+      "<td><b>\u2014</b></td>",
+      "<td class=\"check-table-multiply\"><b>\u2014</b></td>",
+      "<td><b>\u2014</b></td>",
+      `<td><b>${formatTotal(total)}</b></td>`
+    ];
+    if (showPerPersonColumn) {
+      totalCells.push(`<td><b>${formatPerPerson(total, getPricingParticipantCount())}</b></td>`);
+    }
+    rows.push(`<tr class="check-table-total">${totalCells.join("")}</tr>`);
+  } else {
+    const totalCells = [
+      `<td><b>\u0418\u0442\u043e\u0433\u043e</b></td>`,
+      `<td><b>${formatTotal(total)}</b></td>`
+    ];
+    if (showPerPersonColumn) {
+      totalCells.push(`<td><b>${formatPerPerson(total, getPricingParticipantCount())}</b></td>`);
+    }
+    rows.push(`<tr class="check-table-total">${totalCells.join("")}</tr>`);
   }
 
-  rows.push(`<tr class="check-table-total">${totalCells.join("")}</tr>`);
+  if (showHoursColumn) {
+    const headCells = [
+      "<th>\u041f\u043e\u0437\u0438\u0446\u0438\u044f</th>",
+      "<th>\u0427\u0430\u0441\u044b</th>",
+      "<th class=\"check-table-multiply\">\u00d7</th>",
+      "<th>\u0421\u0442\u043e\u0438\u043c\u043e\u0441\u0442\u044c \u0432 \u0447\u0430\u0441</th>",
+      "<th>\u041e\u0431\u0449\u0438\u0439 \u0447\u0435\u043a</th>"
+    ];
+    if (showPerPersonColumn) {
+      headCells.push("<th>\u041d\u0430 \u0447\u0435\u043b\u043e\u0432\u0435\u043a\u0430</th>");
+    }
+    const note = hasNegotiable
+      ? `<p class="check-table-note">\u041f\u043e\u0437\u0438\u0446\u0438\u0438 \u0441 \u0442\u0438\u043f\u043e\u043c \u00ab\u0414\u043e\u0433\u043e\u0432\u043e\u0440\u043d\u0430\u044f\u00bb \u043d\u0435 \u0432\u043a\u043b\u044e\u0447\u0435\u043d\u044b \u0432 \u0430\u0432\u0442\u043e\u0440\u0430\u0441\u0447\u0435\u0442.</p>`
+      : "";
+
+    return `
+      <div class="check-table-wrap">
+        <table class="check-table">
+          <thead>
+            <tr>${headCells.join("")}</tr>
+          </thead>
+          <tbody>${rows.join("")}</tbody>
+        </table>
+      </div>
+      ${note}
+    `;
+  }
 
   const headCells = [
     "<th>\u041f\u043e\u0437\u0438\u0446\u0438\u044f</th>",
     "<th>\u041e\u0431\u0449\u0438\u0439 \u0447\u0435\u043a</th>"
   ];
-  if (showHoursColumn) {
-    headCells.push("<th>\u0427\u0430\u0441\u044b</th>");
-  }
   if (showPerPersonColumn) {
     headCells.push("<th>\u041d\u0430 \u0447\u0435\u043b\u043e\u0432\u0435\u043a\u0430</th>");
   }
