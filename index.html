@@ -4,8 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Форма выбора</title>
-  <link rel="icon" type="image/svg+xml" href="favicon.svg?v=20260421a" />
-  <link rel="stylesheet" href="style.css?v=20260421a" />
+  <link rel="icon" type="image/svg+xml" href="favicon.svg?v=20260421b" />
+  <link rel="stylesheet" href="style.css?v=20260421b" />
 </head>
 <body data-page="form" class="app-booting">
   <div class="container">
@@ -37,13 +37,16 @@
         <input id="name" placeholder="ФИО" />
         <input id="group" placeholder="Группа" />
       </div>
-      <div id="hoursFieldWrap" class="inputs-row hours-row hidden-text">
-        <label class="builder-group">
-          <span class="field-label">Количество часов</span>
-          <input id="hours" type="number" min="1" step="1" value="1" placeholder="Количество часов" />
-        </label>
-      </div>
       <div id="profileError" class="error-text hidden-text"></div>
+    </div>
+
+    <div id="hoursFieldWrap" class="card hours-card hidden-text">
+      <h3 class="hours-card-title">Время</h3>
+      <p class="field-hint">Укажите длительность, если в форме есть позиции с оплатой за час.</p>
+      <label class="hours-field">
+        <span class="field-label">Количество часов</span>
+        <input id="hours" type="number" min="1" step="1" value="1" placeholder="Количество часов" />
+      </label>
     </div>
 
     <div id="statsGrid" class="stats-grid">
@@ -66,8 +69,10 @@
       <p id="submitStatus" class="submit-status">После отправки выбор сохранится, и его можно будет изменить позже.</p>
       <div class="result-actions">
         <button id="detailsBtn" type="button">Общий чек / Итого</button>
-        <button id="clearSelectionBtn" type="button" class="button-secondary">Очистить выбор</button>
         <button id="saveBtn" type="button">Отправить выбор</button>
+      </div>
+      <div class="result-clear-row">
+        <button id="clearSelectionBtn" type="button" class="button-secondary">Очистить выбор</button>
       </div>
     </div>
 
@@ -95,9 +100,9 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="config.runtime.js?v=20260421a"></script>
-  <script src="config.js?v=20260421a"></script>
-  <script src="api.js?v=20260421a"></script>
-  <script src="app.js?v=20260421a"></script>
+  <script src="config.runtime.js?v=20260421b"></script>
+  <script src="config.js?v=20260421b"></script>
+  <script src="api.js?v=20260421b"></script>
+  <script src="app.js?v=20260421b"></script>
 </body>
 </html>

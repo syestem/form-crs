@@ -94,6 +94,7 @@ const ui = {
   builderFormsBtn: null,
   builderOpenFormBtn: null,
   saveSchemaBtn: null,
+  saveSchemaSidebarBtn: null,
   addFieldFromSidebarBtn: null,
   addTopFieldBtn: null,
   resetSchemaBtn: null,
@@ -694,7 +695,7 @@ function isEmptyValue(value) {
 
 function getProfileError() {
   if (isEmptyValue(state.profile.name) && isEmptyValue(state.profile.group)) {
-    return "\u0417\u0430\u043f\u043e\u043b\u043d\u0438\u0442\u0435 \u0438\u043c\u044f \u0438 \u0433\u0440\u0443\u043f\u043f\u0443";
+    return text(state.uiConfig?.profileCombinedErrorLabel || "\u0417\u0430\u043f\u043e\u043b\u043d\u0438\u0442\u0435 \u0438\u043c\u044f \u0438 \u0433\u0440\u0443\u043f\u043f\u0443");
   }
 
   if (isEmptyValue(state.profile.name)) {
@@ -760,11 +761,11 @@ function generateSubmissionId() {
 
 function getDefaultValue(field) {
   if (field.type === "multi") {
-    return field.options?.filter(option => option.defaultSelected).map(option => option.value) || [];
+    return field.options?.filter(option => isOptionVisible(option) && option.defaultSelected).map(option => option.value) || [];
   }
 
   if (field.type === "single") {
-    return field.options?.find(option => option.defaultSelected)?.value || null;
+    return field.options?.find(option => isOptionVisible(option) && option.defaultSelected)?.value || null;
   }
 
   if (field.type === "text") {
@@ -816,6 +817,7 @@ function normalizeUiConfig(config) {
     saveButtonLabel: cleanString(source.saveButtonLabel || "\u041e\u0442\u043f\u0440\u0430\u0432\u0438\u0442\u044c \u0432\u044b\u0431\u043e\u0440"),
     resubmitButtonLabel: cleanString(source.resubmitButtonLabel || "\u041e\u0431\u043d\u043e\u0432\u0438\u0442\u044c \u043c\u043e\u0439 \u0432\u044b\u0431\u043e\u0440"),
     clearButtonLabel: cleanString(source.clearButtonLabel || "\u041e\u0447\u0438\u0441\u0442\u0438\u0442\u044c \u0432\u044b\u0431\u043e\u0440"),
+    profileCombinedErrorLabel: cleanString(source.profileCombinedErrorLabel || "\u0417\u0430\u043f\u043e\u043b\u043d\u0438\u0442\u0435 \u0438\u043c\u044f \u0438 \u0433\u0440\u0443\u043f\u043f\u0443"),
     draftStatusText: cleanString(source.draftStatusText || "\u041f\u043e\u0441\u043b\u0435 \u043e\u0442\u043f\u0440\u0430\u0432\u043a\u0438 \u0432\u044b\u0431\u043e\u0440 \u0441\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u0441\u044f, \u0438 \u0435\u0433\u043e \u043c\u043e\u0436\u043d\u043e \u0431\u0443\u0434\u0435\u0442 \u0438\u0437\u043c\u0435\u043d\u0438\u0442\u044c \u043f\u043e\u0437\u0436\u0435."),
     hoursFieldLabel: cleanString(source.hoursFieldLabel || "\u041a\u043e\u043b\u0438\u0447\u0435\u0441\u0442\u0432\u043e \u0447\u0430\u0441\u043e\u0432"),
     showPerPersonSuffix: source.showPerPersonSuffix !== false,
@@ -908,7 +910,8 @@ function normalizeOption(option) {
     priceType: ["fixed", "perPerson", "perHour", "negotiable"].includes(normalizedPriceType) ? normalizedPriceType : "fixed",
     promoText: cleanString(option?.promoText) || "",
     defaultSelected: Boolean(option?.defaultSelected),
-    locked: Boolean(option?.locked)
+    locked: Boolean(option?.locked),
+    dependsOn: normalizeDependencies(option?.dependsOn)
   };
 }
 
@@ -1310,6 +1313,17 @@ function isFieldVisible(field) {
     : visibility.groups.every(evaluateDependencyGroup);
 }
 
+function isOptionVisible(option) {
+  const visibility = normalizeDependencies(option?.dependsOn);
+  if (!visibility.groups.length) {
+    return true;
+  }
+
+  return visibility.joiner === "or"
+    ? visibility.groups.some(evaluateDependencyGroup)
+    : visibility.groups.every(evaluateDependencyGroup);
+}
+
 function forEachVisibleField(fields, visitor) {
   fields.forEach(field => {
     if (isFieldVisible(field)) {
@@ -1321,7 +1335,7 @@ function forEachVisibleField(fields, visitor) {
 function forEachSelectedOption(fields, visitor) {
   forEachVisibleField(fields, field => {
     field.options?.forEach(option => {
-      if (!isOptionSelected(field, option)) {
+      if (!isOptionVisible(option) || !isOptionSelected(field, option)) {
         return;
       }
 
@@ -1336,6 +1350,16 @@ function validateField(field) {
   }
 
   const value = state.values[field.id];
+  if ((field.type === "single" || field.type === "multi") && !isEmptyValue(value)) {
+    const visibleValues = new Set((field.options || []).filter(isOptionVisible).map(option => option.value));
+    if (field.type === "single" && !visibleValues.has(value)) {
+      return "\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0434\u043e\u0441\u0442\u0443\u043f\u043d\u044b\u0439 \u0432\u0430\u0440\u0438\u0430\u043d\u0442";
+    }
+    if (field.type === "multi" && Array.isArray(value) && !value.some(item => visibleValues.has(item))) {
+      return "\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0434\u043e\u0441\u0442\u0443\u043f\u043d\u044b\u0439 \u0432\u0430\u0440\u0438\u0430\u043d\u0442";
+    }
+  }
+
   if (isEmptyValue(value)) {
     return Array.isArray(value)
       ? "\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0445\u043e\u0442\u044f \u0431\u044b \u043e\u0434\u0438\u043d \u043e\u0431\u044f\u0437\u0430\u0442\u0435\u043b\u044c\u043d\u044b\u0439 \u0432\u0430\u0440\u0438\u0430\u043d\u0442"
@@ -1851,7 +1875,8 @@ function renderField(field, container, index) {
     wrapper.appendChild(dateWrap);
   }
 
-  if (Array.isArray(field.options) && field.options.length) {
+  const visibleOptions = Array.isArray(field.options) ? field.options.filter(isOptionVisible) : [];
+  if (visibleOptions.length) {
     if (field.appearance === "media-carousel") {
       const carousel = document.createElement("div");
       carousel.className = "option-carousel";
@@ -1874,7 +1899,7 @@ function renderField(field, container, index) {
       mobileHint.className = "option-carousel-hint";
       mobileHint.textContent = "\u041b\u0438\u0441\u0442\u0430\u0439\u0442\u0435 \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0438 \u0438\u043b\u0438 \u0438\u0441\u043f\u043e\u043b\u044c\u0437\u0443\u0439\u0442\u0435 \u0441\u0442\u0440\u0435\u043b\u043a\u0438";
 
-      field.options.forEach(option => {
+      visibleOptions.forEach(option => {
         track.appendChild(createOptionNode(field, option, getPricingParticipantCount()));
       });
 
@@ -1882,7 +1907,7 @@ function renderField(field, container, index) {
       mountCarouselControls(track, previousBtn, nextBtn, field.id);
       wrapper.appendChild(carousel);
     } else {
-      field.options.forEach(option => {
+      visibleOptions.forEach(option => {
         wrapper.appendChild(createOptionNode(field, option, getPricingParticipantCount()));
       });
     }
@@ -2084,6 +2109,7 @@ function applyUiConfig() {
   }
 
   if (ui.hoursFieldWrap) {
+    ui.hoursFieldWrap.classList.toggle("hidden-text", !isHoursFieldVisible());
     ui.hoursFieldWrap.style.display = isHoursFieldVisible() ? "" : "none";
     const labelNode = ui.hoursFieldWrap.querySelector(".field-label");
     if (labelNode) {
@@ -2838,7 +2864,8 @@ function createOptionTemplate() {
     priceType: "fixed",
     promoText: "",
     defaultSelected: false,
-    locked: false
+    locked: false,
+    dependsOn: normalizeDependencies()
   };
 }
 
@@ -3217,7 +3244,7 @@ function ensureDependencyEditorGroup(field) {
   return field.dependsOn;
 }
 
-function renderDependencyGroupEditor(field, visibility, group, groupIndex) {
+function renderDependencyGroupEditor(owner, targetField, visibility, group, groupIndex) {
   const groupCard = document.createElement("div");
   groupCard.className = "builder-item builder-item-compact dependency-group-card";
 
@@ -3263,7 +3290,7 @@ function renderDependencyGroupEditor(field, visibility, group, groupIndex) {
     const ruleRow = document.createElement("div");
     ruleRow.className = "builder-row builder-row-4";
     ruleRow.append(
-      createBuilderField("\u041f\u043e\u043b\u0435", createSelectInput(rule.fieldId || "", getDependencyTargets(field.id), value => {
+      createBuilderField("\u041f\u043e\u043b\u0435", createSelectInput(rule.fieldId || "", getDependencyTargets(targetField.id), value => {
         rule.fieldId = value;
         const target = getFields().find(item => item.id === value);
         rule.operator = target?.type === "multi" ? "includes" : "equals";
@@ -3274,7 +3301,7 @@ function renderDependencyGroupEditor(field, visibility, group, groupIndex) {
         rule.operator = value;
         applySchemaChanges({ resetValues: true });
       })),
-      createBuilderField("\u0417\u043d\u0430\u0447\u0435\u043d\u0438\u0435", renderDependencyValueInput(field, rule))
+      createBuilderField("\u0417\u043d\u0430\u0447\u0435\u043d\u0438\u0435", renderDependencyValueInput(targetField, rule))
     );
 
     const removeRuleBtn = document.createElement("button");
@@ -3298,12 +3325,12 @@ function renderDependencyGroupEditor(field, visibility, group, groupIndex) {
   addRuleBtn.textContent = "+";
   addRuleBtn.title = "\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u043f\u0440\u0430\u0432\u0438\u043b\u043e";
   addRuleBtn.setAttribute("aria-label", "\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u043f\u0440\u0430\u0432\u0438\u043b\u043e");
-  addRuleBtn.disabled = getDependencyTargets(field.id).length === 0;
+  addRuleBtn.disabled = getDependencyTargets(targetField.id).length === 0;
   addRuleBtn.addEventListener("click", () => {
-    if (!getFields().find(item => item.id !== field.id)) {
+    if (!getFields().find(item => item.id !== targetField.id)) {
       return;
     }
-    group.rules.push(createDependencyRule(field, null));
+    group.rules.push(createDependencyRule(targetField, null));
     applySchemaChanges({ resetValues: true, rerenderBuilder: true });
   });
   groupCard.appendChild(addRuleBtn);
@@ -3311,13 +3338,13 @@ function renderDependencyGroupEditor(field, visibility, group, groupIndex) {
   return groupCard;
 }
 
-function renderDependenciesSection(field) {
+function renderDependenciesSection(owner, targetField = owner, titleText = "\u0417\u0430\u0432\u0438\u0441\u0438\u043c\u043e\u0441\u0442\u0438 \u0438 \u0432\u0438\u0434\u0438\u043c\u043e\u0441\u0442\u044c") {
   const section = document.createElement("div");
   section.className = "builder-dependencies";
 
   const title = document.createElement("div");
   title.className = "builder-section-title";
-  title.textContent = "\u0417\u0430\u0432\u0438\u0441\u0438\u043c\u043e\u0441\u0442\u0438 \u0438 \u0432\u0438\u0434\u0438\u043c\u043e\u0441\u0442\u044c";
+  title.textContent = text(titleText);
   section.appendChild(title);
 
   const note = document.createElement("p");
@@ -3325,7 +3352,7 @@ function renderDependenciesSection(field) {
   note.textContent = "\u041d\u0430\u0441\u0442\u0440\u043e\u0439\u0442\u0435, \u043a\u043e\u0433\u0434\u0430 \u044d\u0442\u043e \u043f\u043e\u043b\u0435 \u043f\u043e\u043a\u0430\u0437\u044b\u0432\u0430\u0435\u0442\u0441\u044f \u0438\u043b\u0438 \u0441\u043a\u0440\u044b\u0432\u0430\u0435\u0442\u0441\u044f. \u041c\u043e\u0436\u043d\u043e \u0441\u043e\u0431\u0440\u0430\u0442\u044c \u043d\u0435\u0441\u043a\u043e\u043b\u044c\u043a\u043e \u0433\u0440\u0443\u043f\u043f \u0443\u0441\u043b\u043e\u0432\u0438\u0439 \u0438 \u043e\u0431\u044a\u0435\u0434\u0438\u043d\u044f\u0442\u044c \u0438\u0445 \u0447\u0435\u0440\u0435\u0437 \u0418 / \u0418\u041b\u0418.";
   section.appendChild(note);
 
-  const visibility = ensureDependencyEditorGroup(field);
+  const visibility = ensureDependencyEditorGroup(owner);
 
   const topRow = document.createElement("div");
   topRow.className = "builder-row builder-row-4 builder-row-dependencies";
@@ -3344,8 +3371,8 @@ function renderDependenciesSection(field) {
   clearBtn.className = "button-secondary builder-clear-btn";
   clearBtn.textContent = "\u041e\u0447\u0438\u0441\u0442\u0438\u0442\u044c \u0432\u0441\u0435";
   clearBtn.addEventListener("click", () => {
-    field.dependsOn = normalizeDependencies();
-    ensureDependencyEditorGroup(field);
+    owner.dependsOn = normalizeDependencies();
+    ensureDependencyEditorGroup(owner);
     applySchemaChanges({ resetValues: true, rerenderBuilder: true });
   });
   topRow.append(clearBtn);
@@ -3361,7 +3388,7 @@ function renderDependenciesSection(field) {
       groupsList.appendChild(groupJoiner);
     }
 
-    groupsList.appendChild(renderDependencyGroupEditor(field, visibility, group, groupIndex));
+    groupsList.appendChild(renderDependencyGroupEditor(owner, targetField, visibility, group, groupIndex));
   });
   section.appendChild(groupsList);
 
@@ -3371,9 +3398,9 @@ function renderDependenciesSection(field) {
   addGroupBtn.textContent = "+";
   addGroupBtn.title = "\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u0433\u0440\u0443\u043f\u043f\u0443 \u0443\u0441\u043b\u043e\u0432\u0438\u0439";
   addGroupBtn.setAttribute("aria-label", "\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u0433\u0440\u0443\u043f\u043f\u0443 \u0443\u0441\u043b\u043e\u0432\u0438\u0439");
-  addGroupBtn.disabled = getDependencyTargets(field.id).length === 0;
+  addGroupBtn.disabled = getDependencyTargets(targetField.id).length === 0;
   addGroupBtn.addEventListener("click", () => {
-    visibility.groups.push(createDependencyGroup(field));
+    visibility.groups.push(createDependencyGroup(targetField));
     applySchemaChanges({ resetValues: true, rerenderBuilder: true });
   });
   section.appendChild(addGroupBtn);
@@ -3619,6 +3646,25 @@ function renderOptionEditor(option, options, optionIndex, field) {
   );
   card.appendChild(row3);
 
+  const optionDependencyKey = `option:${field.id}:${option.value || optionIndex}`;
+  const optionDependencyActions = document.createElement("div");
+  optionDependencyActions.className = "builder-inline-actions builder-option-dependency-actions";
+  const optionDependencyToggle = document.createElement("button");
+  optionDependencyToggle.type = "button";
+  optionDependencyToggle.className = "button-secondary builder-dependency-toggle";
+  optionDependencyToggle.textContent = isDependenciesCollapsed(optionDependencyKey)
+    ? `\u0417\u0430\u0432\u0438\u0441\u0438\u043c\u043e\u0441\u0442\u0438 \u0432\u0430\u0440\u0438\u0430\u043d\u0442\u0430 (${getDependencyRuleCount(option)})`
+    : "\u0421\u043a\u0440\u044b\u0442\u044c \u0437\u0430\u0432\u0438\u0441\u0438\u043c\u043e\u0441\u0442\u0438 \u0432\u0430\u0440\u0438\u0430\u043d\u0442\u0430";
+  optionDependencyToggle.addEventListener("click", () => {
+    toggleDependenciesSection(optionDependencyKey);
+  });
+  optionDependencyActions.appendChild(optionDependencyToggle);
+  card.appendChild(optionDependencyActions);
+
+  if (!isDependenciesCollapsed(optionDependencyKey)) {
+    card.appendChild(renderDependenciesSection(option, field, "\u0417\u0430\u0432\u0438\u0441\u0438\u043c\u043e\u0441\u0442\u0438 \u0432\u0430\u0440\u0438\u0430\u043d\u0442\u0430"));
+  }
+
   const actions = document.createElement("div");
   actions.className = "builder-inline-actions";
 
@@ -3639,10 +3685,29 @@ function renderOptionEditor(option, options, optionIndex, field) {
   return card;
 }
 
+function createBuilderInsertFieldButton(position, index) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = `builder-insert-btn builder-insert-${position}`;
+  button.textContent = "+";
+  button.title = "\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u0432\u043e\u043f\u0440\u043e\u0441 \u0437\u0434\u0435\u0441\u044c";
+  button.setAttribute("aria-label", "\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u0432\u043e\u043f\u0440\u043e\u0441 \u0437\u0434\u0435\u0441\u044c");
+  button.addEventListener("click", event => {
+    event.preventDefault();
+    event.stopPropagation();
+    insertFieldAt(index);
+  });
+  return button;
+}
+
 function renderFieldEditor(field, fields, index) {
   const card = document.createElement("section");
   card.className = "builder-item";
   card.id = `builder-field-${field.id}`;
+  card.append(
+    createBuilderInsertFieldButton("top", index),
+    createBuilderInsertFieldButton("bottom", index + 1)
+  );
 
   const { header, handle, title, meta } = createBuilderHeader(
     field.label || `\u041f\u043e\u043b\u0435 ${index + 1}`,
@@ -4011,7 +4076,7 @@ function renderUiConfigEditor() {
   );
 
   const extraButtonsRow = document.createElement("div");
-  extraButtonsRow.className = "builder-row builder-row-2";
+  extraButtonsRow.className = "builder-row builder-row-3";
   extraButtonsRow.append(
     createBuilderField("\u041a\u043d\u043e\u043f\u043a\u0430 \u043e\u0447\u0438\u0441\u0442\u0438\u0442\u044c \u0432\u044b\u0431\u043e\u0440", createTextInput(state.uiConfig.clearButtonLabel || "", value => {
       state.uiConfig.clearButtonLabel = value;
@@ -4019,6 +4084,10 @@ function renderUiConfigEditor() {
     })),
     createBuilderField("\u041f\u043e\u043b\u0435 \u0447\u0430\u0441\u043e\u0432", createTextInput(state.uiConfig.hoursFieldLabel || "", value => {
       state.uiConfig.hoursFieldLabel = value;
+      applySchemaChanges();
+    })),
+    createBuilderField("\u041e\u0448\u0438\u0431\u043a\u0430 \u0438\u043c\u0435\u043d\u0438 \u0438 \u0433\u0440\u0443\u043f\u043f\u044b", createTextInput(state.uiConfig.profileCombinedErrorLabel || "", value => {
+      state.uiConfig.profileCombinedErrorLabel = value;
       applySchemaChanges();
     }))
   );
@@ -4726,6 +4795,10 @@ function renderBuilder() {
   }
   if (ui.saveSchemaBtn) {
     ui.saveSchemaBtn.classList.toggle("hidden-text", !hasActiveBuilderForm || isResponsesTab || isPermissionsTab);
+  }
+  if (ui.saveSchemaSidebarBtn) {
+    ui.saveSchemaSidebarBtn.classList.toggle("hidden-text", !hasActiveBuilderForm || !isConstructorTab);
+    ui.saveSchemaSidebarBtn.disabled = !hasActiveBuilderForm || !isConstructorTab;
   }
   if (ui.builderFormsBtn) {
     ui.builderFormsBtn.classList.toggle("hidden-text", !hasActiveBuilderForm);
@@ -5546,6 +5619,7 @@ async function initializeBuilderPage() {
 
   ui.closeBuilderBtn.addEventListener("click", closeBuilder);
   ui.saveSchemaBtn?.addEventListener("click", saveSchemaNow);
+  ui.saveSchemaSidebarBtn?.addEventListener("click", saveSchemaNow);
   ui.builderTabs.forEach(tab => {
     tab.addEventListener("click", async () => {
       await setBuilderTab(tab.dataset.builderTab || "constructor");
@@ -5605,6 +5679,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   ui.builderFormsBtn = document.getElementById("builderFormsBtn");
   ui.builderOpenFormBtn = document.getElementById("builderOpenFormBtn");
   ui.saveSchemaBtn = document.getElementById("saveSchemaBtn");
+  ui.saveSchemaSidebarBtn = document.getElementById("saveSchemaSidebarBtn");
   ui.addFieldFromSidebarBtn = document.getElementById("addFieldFromSidebarBtn");
   ui.addTopFieldBtn = document.getElementById("addTopFieldBtn");
   ui.resetSchemaBtn = document.getElementById("resetSchemaBtn");
