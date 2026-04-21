@@ -319,10 +319,26 @@ body[data-page="builder"] .builder-sidebar[hidden] {
   max-width: 360px;
 }
 
+.hours-field-row {
+  display: flex;
+  align-items: end;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
 .hours-field .field-label {
   color: rgba(241, 246, 237, 0.78);
   font-size: 12px;
   font-weight: 700;
+}
+
+.hours-field-meta {
+  color: rgba(217, 255, 63, 0.94);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.2;
+  padding-bottom: 12px;
+  white-space: nowrap;
 }
 
 h1 {
@@ -2378,6 +2394,20 @@ button:disabled {
 
   .inputs-row {
     flex-direction: column;
+  }
+
+  .hours-field-row {
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .hours-field {
+    max-width: none;
+  }
+
+  .hours-field-meta {
+    padding-bottom: 0;
+    white-space: normal;
   }
 
   .result-actions {

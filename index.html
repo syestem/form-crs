@@ -4,8 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Форма выбора</title>
-  <link rel="icon" type="image/svg+xml" href="favicon.svg?v=20260421b" />
-  <link rel="stylesheet" href="style.css?v=20260421b" />
+  <link rel="icon" type="image/svg+xml" href="favicon.svg?v=20260421c" />
+  <link rel="stylesheet" href="style.css?v=20260421c" />
 </head>
 <body data-page="form" class="app-booting">
   <div class="container">
@@ -43,10 +43,13 @@
     <div id="hoursFieldWrap" class="card hours-card hidden-text">
       <h3 class="hours-card-title">Время</h3>
       <p class="field-hint">Укажите длительность, если в форме есть позиции с оплатой за час.</p>
-      <label class="hours-field">
-        <span class="field-label">Количество часов</span>
-        <input id="hours" type="number" min="1" step="1" value="1" placeholder="Количество часов" />
-      </label>
+      <div class="hours-field-row">
+        <label class="hours-field">
+          <span class="field-label">Количество часов</span>
+          <input id="hours" type="number" min="1" step="1" value="1" placeholder="Количество часов" />
+        </label>
+        <div class="hours-field-meta">4 часа бесплатно</div>
+      </div>
     </div>
 
     <div id="statsGrid" class="stats-grid">
@@ -100,9 +103,9 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="config.runtime.js?v=20260421b"></script>
-  <script src="config.js?v=20260421b"></script>
-  <script src="api.js?v=20260421b"></script>
-  <script src="app.js?v=20260421b"></script>
+  <script src="config.runtime.js?v=20260421c"></script>
+  <script src="config.js?v=20260421c"></script>
+  <script src="api.js?v=20260421c"></script>
+  <script src="app.js?v=20260421c"></script>
 </body>
 </html>
