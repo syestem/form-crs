@@ -2931,12 +2931,38 @@ function bindProfileInputs() {
   });
 
   if (ui.hours) {
-    ui.hours.addEventListener("input", event => {
-      state.profile.hours = parsePositiveCount(event.target.value, 1);
-      event.target.value = state.profile.hours;
+    const commitHoursValue = () => {
+      const rawValue = cleanString(ui.hours.value).replace(/[^\d]/g, "");
+      const nextValue = parsePositiveCount(rawValue, 1);
+      state.profile.hours = nextValue;
+      ui.hours.value = String(nextValue);
       saveDraft();
-      refreshUI(true);
+      refreshUI(false);
+    };
+
+    ui.hours.addEventListener("focus", () => {
+      window.setTimeout(() => {
+        try {
+          ui.hours.select();
+        } catch {
+          // noop
+        }
+      }, 0);
     });
+
+    ui.hours.addEventListener("input", event => {
+      const digitsOnly = cleanString(event.target.value).replace(/[^\d]/g, "");
+      event.target.value = digitsOnly;
+      if (!digitsOnly) {
+        return;
+      }
+      state.profile.hours = parsePositiveCount(digitsOnly, 1);
+      saveDraft();
+      refreshUI(false);
+    });
+
+    ui.hours.addEventListener("blur", commitHoursValue);
+    ui.hours.addEventListener("change", commitHoursValue);
   }
 }
 
