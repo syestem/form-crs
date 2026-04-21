@@ -2510,8 +2510,8 @@ function queueSchemaSync() {
       }
     } catch (error) {
       console.error(error);
-      if (String(error.message || "").toLowerCase().includes("admin")) {
-        setAdminToken("");
+      if (handleExpiredBuilderSession(error, "Сессия в конструкторе истекла. Мы сохранили изменения локально и закрыли доступ. Войдите заново, чтобы продолжить.")) {
+        return;
       }
       if (!state.isSubmitting) {
         ui.submitStatus.textContent = "\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0430\u0432\u0442\u043e\u043c\u0430\u0442\u0438\u0447\u0435\u0441\u043a\u0438 \u0441\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c \u0438\u0437\u043c\u0435\u043d\u0435\u043d\u0438\u044f \u0432 \u0444\u043e\u0440\u043c\u0443. \u041f\u0440\u043e\u0432\u0435\u0440\u044c\u0442\u0435 \u043d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438 API.";
@@ -2548,10 +2548,7 @@ async function saveSchemaNow() {
     setBuilderSaveIndicator("\u0412\u0441\u0435 \u0438\u0437\u043c\u0435\u043d\u0435\u043d\u0438\u044f \u0441\u043e\u0445\u0440\u0430\u043d\u0435\u043d\u044b", "saved");
   } catch (error) {
     console.error(error);
-    if (String(error.message || "").toLowerCase().includes("admin")) {
-      setAdminToken("");
-      ui.submitStatus.textContent = "\u0421\u0435\u0441\u0441\u0438\u044f \u0430\u0434\u043c\u0438\u043d\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440\u0430 \u0438\u0441\u0442\u0435\u043a\u043b\u0430. \u0412\u043e\u0439\u0434\u0438\u0442\u0435 \u0432 \u043a\u043e\u043d\u0441\u0442\u0440\u0443\u043a\u0442\u043e\u0440 \u0437\u0430\u043d\u043e\u0432\u043e \u0438 \u043f\u043e\u0432\u0442\u043e\u0440\u0438\u0442\u0435 \u0441\u043e\u0445\u0440\u0430\u043d\u0435\u043d\u0438\u0435.";
-      setBuilderSaveIndicator("\u0421\u0435\u0441\u0441\u0438\u044f \u0438\u0441\u0442\u0435\u043a\u043b\u0430", "error");
+    if (handleExpiredBuilderSession(error, "Сессия в конструкторе истекла. Мы сохранили изменения локально и вернули вас на экран входа. Войдите заново и продолжайте работу.")) {
       return;
     }
     ui.submitStatus.textContent = `\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0441\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c \u0441\u0445\u0435\u043c\u0443 \u0438\u043b\u0438 \u0444\u043e\u0440\u043c\u0443: ${error.message || "\u043d\u0435\u0438\u0437\u0432\u0435\u0441\u0442\u043d\u0430\u044f \u043e\u0448\u0438\u0431\u043a\u0430"}. \u041f\u0440\u043e\u0432\u0435\u0440\u044c\u0442\u0435 \u043d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438 API.`;
@@ -2589,6 +2586,13 @@ async function loadResponsesPreview() {
       );
     } catch (error) {
       console.error(error);
+      if (handleExpiredBuilderSession(error)) {
+        state.builder.responses.headers = [];
+        state.builder.responses.rows = [];
+        state.builder.responses.records = [];
+        state.builder.responses.selectedKeys = [];
+        return;
+      }
       state.builder.responses.headers = [];
       state.builder.responses.rows = [];
       state.builder.responses.records = [];
@@ -2619,6 +2623,11 @@ async function loadBuilderMembers() {
     const result = await FormApi.listMembers(CONFIG, getBuilderBearerToken());
     state.builder.members.items = Array.isArray(result.members) ? result.members : [];
   } catch (error) {
+    if (handleExpiredBuilderSession(error)) {
+      state.builder.members.items = [];
+      state.builder.members.error = "";
+      return;
+    }
     state.builder.members.items = [];
     state.builder.members.error = cleanString(error?.message || "\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u043f\u0440\u0430\u0432\u0430.");
   } finally {
@@ -2643,6 +2652,9 @@ async function inviteBuilderMember() {
     await loadBuilderMembers();
     ui.submitStatus.textContent = "\u0414\u043e\u0441\u0442\u0443\u043f \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d.";
   } catch (error) {
+    if (handleExpiredBuilderSession(error)) {
+      return;
+    }
     ui.submitStatus.textContent = `\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0432\u044b\u0434\u0430\u0442\u044c \u0434\u043e\u0441\u0442\u0443\u043f: ${cleanString(error?.message || "\u043e\u0448\u0438\u0431\u043a\u0430")}`;
   }
 }
@@ -2653,6 +2665,9 @@ async function updateBuilderMemberRole(member, role) {
     await loadBuilderMembers();
     ui.submitStatus.textContent = "\u0420\u043e\u043b\u044c \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u0430.";
   } catch (error) {
+    if (handleExpiredBuilderSession(error)) {
+      return;
+    }
     ui.submitStatus.textContent = `\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u043e\u0431\u043d\u043e\u0432\u0438\u0442\u044c \u0440\u043e\u043b\u044c: ${cleanString(error?.message || "\u043e\u0448\u0438\u0431\u043a\u0430")}`;
   }
 }
@@ -2667,6 +2682,9 @@ async function removeBuilderMember(member) {
     await loadBuilderMembers();
     ui.submitStatus.textContent = "\u0414\u043e\u0441\u0442\u0443\u043f \u0443\u0434\u0430\u043b\u0435\u043d.";
   } catch (error) {
+    if (handleExpiredBuilderSession(error)) {
+      return;
+    }
     ui.submitStatus.textContent = `\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0443\u0434\u0430\u043b\u0438\u0442\u044c \u0434\u043e\u0441\u0442\u0443\u043f: ${cleanString(error?.message || "\u043e\u0448\u0438\u0431\u043a\u0430")}`;
   }
 }
@@ -5144,6 +5162,47 @@ function closeBuilder() {
   }
 }
 
+function isExpiredBuilderSessionError(error) {
+  const message = cleanString(error?.message || "").toLowerCase();
+  const status = Number(error?.status || 0);
+  return status === 401
+    || (message.includes("invalid jwt") && message.includes("expired"))
+    || message.includes("token is expired")
+    || message.includes("token has invalid claims")
+    || message.includes("jwt expired");
+}
+
+function handleExpiredBuilderSession(error, message = "Сессия истекла. Мы сохранили текущие изменения локально. Войдите заново, чтобы продолжить работу.") {
+  if (!isBuilderPage() || !isExpiredBuilderSessionError(error)) {
+    return false;
+  }
+
+  saveSchema();
+  saveUiConfig();
+  saveDraft();
+
+  if (state.schemaSync.timerId) {
+    clearTimeout(state.schemaSync.timerId);
+    state.schemaSync.timerId = 0;
+  }
+  state.schemaSync.isSaving = false;
+
+  setBuilderSaveIndicator("Сессия истекла, изменения сохранены локально", "error");
+  closeBuilder();
+
+  if (ui.builderAuthError) {
+    ui.builderAuthError.textContent = message;
+    ui.builderAuthError.classList.remove("hidden-text");
+  }
+
+  if (ui.submitStatus) {
+    ui.submitStatus.textContent = message;
+  }
+
+  renderBuilder();
+  return true;
+}
+
 function unlockBuilderWorkspace() {
   if (ui.builderGate) {
     ui.builderGate.classList.add("hidden-text");
@@ -5265,6 +5324,11 @@ async function loadBuilderForms() {
       const result = await FormApi.listForms(CONFIG, getBuilderBearerToken());
       state.builder.forms.items = Array.isArray(result.forms) ? result.forms : [];
     } catch (error) {
+      if (handleExpiredBuilderSession(error)) {
+        state.builder.forms.items = [];
+        state.builder.forms.error = "";
+        return;
+      }
       state.builder.forms.items = [];
       state.builder.forms.error = cleanString(error?.message || "\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u0444\u043e\u0440\u043c\u044b.");
     } finally {
@@ -5367,6 +5431,9 @@ async function submitEditingFormSlug(form) {
     }
     renderBuilder();
   } catch (error) {
+    if (handleExpiredBuilderSession(error)) {
+      return;
+    }
     ui.submitStatus.textContent = `\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u043e\u0431\u043d\u043e\u0432\u0438\u0442\u044c \u0430\u0434\u0440\u0435\u0441 \u0444\u043e\u0440\u043c\u044b: ${cleanString(error?.message || "\u043e\u0448\u0438\u0431\u043a\u0430")}`;
   }
 }
@@ -5404,6 +5471,9 @@ async function createBuilderForm() {
     ui.submitStatus.textContent = "\u0424\u043e\u0440\u043c\u0430 \u0441\u043e\u0437\u0434\u0430\u043d\u0430.";
     await openBuilderForm(result?.form?.slug || slug);
   } catch (error) {
+    if (handleExpiredBuilderSession(error)) {
+      return;
+    }
     ui.submitStatus.textContent = `\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0441\u043e\u0437\u0434\u0430\u0442\u044c \u0444\u043e\u0440\u043c\u0443: ${cleanString(error?.message || "\u043e\u0448\u0438\u0431\u043a\u0430")}`;
     renderBuilder();
   }
@@ -5732,6 +5802,9 @@ async function deleteBuilderForm(form) {
     await loadBuilderForms();
     ui.submitStatus.textContent = "\u0424\u043e\u0440\u043c\u0430 \u0443\u0434\u0430\u043b\u0435\u043d\u0430.";
   } catch (error) {
+    if (handleExpiredBuilderSession(error)) {
+      return;
+    }
     ui.submitStatus.textContent = `\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0443\u0434\u0430\u043b\u0438\u0442\u044c \u0444\u043e\u0440\u043c\u0443: ${cleanString(error?.message || "\u043e\u0448\u0438\u0431\u043a\u0430")}`;
   }
 }
