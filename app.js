@@ -836,6 +836,15 @@ function parsePositiveCount(value, fallback) {
   return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : fallback;
 }
 
+function parseOptionalPrice(value) {
+  if (value === "" || value == null) {
+    return null;
+  }
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 function getDisplayParticipantCount() {
   const rawValue = state.uiConfig?.displayParticipantsCount ?? state.uiConfig?.participantsCount ?? CONFIG.participants;
   return parsePositiveCount(rawValue, CONFIG.participants);
@@ -968,6 +977,7 @@ function normalizeOption(option) {
     mapUrl: cleanString(option?.mapUrl) || "",
     image: cleanString(option?.image) || "",
     price: Number(option?.price) || 0,
+    nextPrice: parseOptionalPrice(option?.nextPrice),
     priceType: ["fixed", "perPerson", "perHour", "negotiable"].includes(normalizedPriceType) ? normalizedPriceType : "fixed",
     promoText: cleanString(option?.promoText) || "",
     defaultSelected: Boolean(option?.defaultSelected),
@@ -1048,16 +1058,23 @@ function calcItem(option, people, quantity = 1) {
     return 0;
   }
 
+  const safeQuantity = Math.max(1, parsePositiveCount(quantity, 1));
+  const basePrice = Number(option.price) || 0;
+  const nextPrice = option.nextPrice != null && Number.isFinite(Number(option.nextPrice))
+    ? Number(option.nextPrice)
+    : basePrice;
+  const quantityMultiplier = basePrice + Math.max(0, safeQuantity - 1) * nextPrice;
+
   if (option.priceType === "fixed") {
-    return option.price * quantity;
+    return quantityMultiplier;
   }
 
   if (option.priceType === "perPerson") {
-    return option.price * people * quantity;
+    return quantityMultiplier * people;
   }
 
   if (option.priceType === "perHour") {
-    return option.price * getHoursCount() * quantity;
+    return quantityMultiplier * getHoursCount();
   }
 
   return 0;
@@ -1077,11 +1094,21 @@ function getOptionPriceLabel(option, people) {
   }
 
   if (option.priceType === "fixed") {
+    if (option.nextPrice != null && Number.isFinite(Number(option.nextPrice))) {
+      return `${formatPerPersonValue(Math.round(option.price / people))} + ${formatPerPersonValue(Math.round(Number(option.nextPrice) / people))}`;
+    }
     return formatPerPersonValue(Math.round(option.price / people));
   }
 
   if (option.priceType === "perHour") {
+    if (option.nextPrice != null && Number.isFinite(Number(option.nextPrice))) {
+      return `${option.price} \u20bd/\u0447\u0430\u0441 + ${Number(option.nextPrice)} \u20bd/\u0447\u0430\u0441`;
+    }
     return `${option.price} \u20bd/\u0447\u0430\u0441`;
+  }
+
+  if (option.nextPrice != null && Number.isFinite(Number(option.nextPrice))) {
+    return `${formatPerPersonValue(option.price)} + ${formatPerPersonValue(Number(option.nextPrice))}`;
   }
 
   return formatPerPersonValue(option.price);
@@ -1503,10 +1530,19 @@ function syncLinkedOptionQuantities() {
       if (quantity > 0) {
         if (!nextValues.includes(option.value)) {
           nextValues.push(option.value);
+          changed = true;
         }
+        const previousQuantity = getOptionQuantity(field.id, option.value);
         setOptionQuantity(field.id, option.value, quantity);
+        if (previousQuantity !== quantity) {
+          changed = true;
+        }
       } else if (managedKeys.has(key)) {
+        const hadQuantity = Object.prototype.hasOwnProperty.call(state.optionQuantities || {}, key);
         clearOptionQuantity(field.id, option.value);
+        if (hadQuantity) {
+          changed = true;
+        }
       }
     });
 
@@ -2195,8 +2231,8 @@ function renderAll() {
 function calculateTotal() {
   let total = 0;
 
-  forEachSelectedOption(getFields(), (_, option) => {
-    total += calcItem(option, getPricingParticipantCount());
+  forEachSelectedOption(getFields(), (field, option) => {
+    total += calcItem(option, getPricingParticipantCount(), getOptionQuantity(field.id, option.value));
   });
 
   const ticketLabel = text(state.uiConfig.ticketLabel || getDefaultUiConfig().ticketLabel);
@@ -2223,13 +2259,15 @@ function generateDetails() {
     const sum = calcItem(option, getPricingParticipantCount(), quantity);
     total += sum;
     const isPerHour = option.priceType === "perHour";
+    const perHourRate = (Number(option.price) || 0)
+      + Math.max(0, quantity - 1) * (option.nextPrice != null ? Number(option.nextPrice) : Number(option.price) || 0);
 
     if (showHoursColumn) {
       const cells = [
         `<td>${text(option.label)}</td>`,
-        `<td>${isPerHour ? getHoursCount() * quantity : "\u2014"}</td>`,
+        `<td>${isPerHour ? getHoursCount() : "\u2014"}</td>`,
         `<td class="check-table-multiply">${isPerHour ? "\u00d7" : "\u2014"}</td>`,
-        `<td>${isPerHour ? formatTotal(option.price) : "\u2014"}</td>`,
+        `<td>${isPerHour ? formatTotal(perHourRate) : "\u2014"}</td>`,
         `<td>${option.priceType === "negotiable" ? "\u0414\u043e\u0433\u043e\u0432\u043e\u0440\u043d\u0430\u044f" : formatTotal(sum)}</td>`
       ];
 
@@ -2959,8 +2997,9 @@ function buildAnswersForSubmission(fields = getFields()) {
         answers[field.id] = filteredValues;
         filteredValues.forEach(optionValue => {
           const option = findOption(field, optionValue);
-          if (option?.allowQuantity) {
-            optionQuantities[getOptionQuantityKey(field.id, optionValue)] = getOptionQuantity(field.id, optionValue);
+          const quantityKey = getOptionQuantityKey(field.id, optionValue);
+          if (option || Object.prototype.hasOwnProperty.call(state.optionQuantities || {}, quantityKey)) {
+            optionQuantities[quantityKey] = getOptionQuantity(field.id, optionValue);
           }
         });
       }
@@ -2993,7 +3032,7 @@ function buildSelectedSummary() {
     summary.push({
       fieldId: field.id,
       value: option.value,
-      label: option.allowQuantity ? `${option.label} x${getOptionQuantity(field.id, option.value)}` : option.label
+      label: getOptionQuantity(field.id, option.value) > 1 ? `${option.label} x${getOptionQuantity(field.id, option.value)}` : option.label
     });
   });
 
@@ -3002,6 +3041,7 @@ function buildSelectedSummary() {
 
 function buildSubmissionPayload() {
   syncDependentOptionSelections();
+  syncLinkedOptionQuantities();
   const total = calculateTotal();
 
   return {
@@ -3265,6 +3305,7 @@ function createOptionTemplate() {
     mapUrl: "",
     image: "",
     price: 0,
+    nextPrice: null,
     priceType: "fixed",
     promoText: "",
     defaultSelected: false,
@@ -4023,6 +4064,10 @@ function renderOptionEditor(option, options, optionIndex, field) {
     }), "builder-group-compact"),
     createBuilderField("\u0426\u0435\u043d\u0430", createTextInput(option.price || 0, value => {
       option.price = Number(value) || 0;
+      applySchemaChanges();
+    }, "number"), "builder-group-compact"),
+    createBuilderField("\u041a\u0430\u0436\u0434\u044b\u0439 \u0441\u043b\u0435\u0434.", createTextInput(option.nextPrice ?? "", value => {
+      option.nextPrice = parseOptionalPrice(value);
       applySchemaChanges();
     }, "number"), "builder-group-compact"),
     createBuilderField("\u0422\u0438\u043f \u0446\u0435\u043d\u044b", createSelectInput(option.priceType || "fixed", [

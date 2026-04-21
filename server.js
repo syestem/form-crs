@@ -263,6 +263,9 @@ function normalizeOption(option) {
     mapUrl: cleanString(option?.mapUrl),
     image: cleanString(option?.image),
     price: Number(option?.price) || 0,
+    nextPrice: option?.nextPrice === "" || option?.nextPrice == null
+      ? null
+      : (Number.isFinite(Number(option?.nextPrice)) ? Number(option?.nextPrice) : null),
     priceType: cleanString(option?.priceType) || "fixed",
     promoText: cleanString(option?.promoText),
     defaultSelected: Boolean(option?.defaultSelected),
