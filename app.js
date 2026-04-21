@@ -160,7 +160,11 @@ function text(value) {
 }
 
 function cleanString(value) {
-  return typeof value === "string" ? text(value) : value;
+  if (value == null) {
+    return "";
+  }
+
+  return text(typeof value === "string" ? value : String(value));
 }
 
 function ensureLoadingOverlay() {
