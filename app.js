@@ -61,7 +61,8 @@
       error: "",
       items: [],
       draftEmail: "",
-      draftRole: "editor"
+      draftRole: "editor",
+      draftNotify: false
     },
     themeMode: "basic",
     saveIndicatorTone: "idle",
@@ -127,6 +128,7 @@ const ui = {
   group: null,
   profileError: null,
   profileCard: null,
+  resultCard: null,
   statsGrid: null,
   participantsStatCard: null,
   responsesStatCard: null,
@@ -405,16 +407,10 @@ function formatBuilderDate(value) {
 
 function getRoleLabel(role) {
   const normalized = cleanString(role || "").toLowerCase();
-  if (normalized === "owner") {
-    return "\u0412\u043b\u0430\u0434\u0435\u043b\u0435\u0446";
-  }
-  if (normalized === "admin") {
-    return "\u0410\u0434\u043c\u0438\u043d";
-  }
-  if (normalized === "editor") {
+  if (normalized === "owner" || normalized === "admin" || normalized === "viewer" || normalized === "editor") {
     return "\u0420\u0435\u0434\u0430\u043a\u0442\u043e\u0440";
   }
-  return "\u041d\u0430\u0431\u043b\u044e\u0434\u0430\u0442\u0435\u043b\u044c";
+  return "\u0420\u0435\u0434\u0430\u043a\u0442\u043e\u0440";
 }
 
 function formatFormDateValue(value) {
@@ -461,10 +457,7 @@ function getResponsesHeaderLabel(header) {
 
 function getAssignableRoleChoices() {
   return [
-    { value: "owner", label: "\u0412\u043b\u0430\u0434\u0435\u043b\u0435\u0446" },
-    { value: "admin", label: "\u0410\u0434\u043c\u0438\u043d" },
-    { value: "editor", label: "\u0420\u0435\u0434\u0430\u043a\u0442\u043e\u0440" },
-    { value: "viewer", label: "\u041d\u0430\u0431\u043b\u044e\u0434\u0430\u0442\u0435\u043b\u044c" }
+    { value: "editor", label: "\u0420\u0435\u0434\u0430\u043a\u0442\u043e\u0440" }
   ];
 }
 
@@ -491,6 +484,23 @@ function getSupabaseBrowserClient() {
 
 function isMobileDevice() {
   return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || "");
+}
+
+function updateMobileInputMode() {
+  if (!isMobileDevice() || ui.pageMode !== "form") {
+    document.body.classList.remove("form-input-active");
+    return;
+  }
+
+  const active = document.activeElement;
+  const isTypingTarget = Boolean(active) && (
+    active.tagName === "INPUT"
+    || active.tagName === "TEXTAREA"
+    || active.tagName === "SELECT"
+    || active.isContentEditable
+  );
+
+  document.body.classList.toggle("form-input-active", isTypingTarget);
 }
 
 function isAndroidDevice() {
@@ -2639,6 +2649,7 @@ async function loadBuilderMembers() {
 async function inviteBuilderMember() {
   const email = cleanString(state.builder.members.draftEmail).toLowerCase();
   const role = cleanString(state.builder.members.draftRole || "editor");
+  const notifyOnSubmit = Boolean(state.builder.members.draftNotify);
   if (!email) {
     ui.submitStatus.textContent = "\u0412\u0432\u0435\u0434\u0438\u0442\u0435 email \u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044f.";
     return;
@@ -2646,9 +2657,10 @@ async function inviteBuilderMember() {
 
   try {
     ui.submitStatus.textContent = "\u0414\u043e\u0431\u0430\u0432\u043b\u044f\u0435\u043c \u0434\u043e\u0441\u0442\u0443\u043f...";
-    await FormApi.addMember(CONFIG, { email, role }, getBuilderBearerToken());
+    await FormApi.addMember(CONFIG, { email, role, notifyOnSubmit }, getBuilderBearerToken());
     state.builder.members.draftEmail = "";
     state.builder.members.draftRole = "editor";
+    state.builder.members.draftNotify = false;
     await loadBuilderMembers();
     ui.submitStatus.textContent = "\u0414\u043e\u0441\u0442\u0443\u043f \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d.";
   } catch (error) {
@@ -2669,6 +2681,19 @@ async function updateBuilderMemberRole(member, role) {
       return;
     }
     ui.submitStatus.textContent = `\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u043e\u0431\u043d\u043e\u0432\u0438\u0442\u044c \u0440\u043e\u043b\u044c: ${cleanString(error?.message || "\u043e\u0448\u0438\u0431\u043a\u0430")}`;
+  }
+}
+
+async function updateBuilderMemberNotify(member, notifyOnSubmit) {
+  try {
+    await FormApi.updateMember(CONFIG, member.userId, { notifyOnSubmit }, getBuilderBearerToken());
+    await loadBuilderMembers();
+    ui.submitStatus.textContent = "\u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0430 \u0443\u0432\u0435\u0434\u043e\u043c\u043b\u0435\u043d\u0438\u0439 \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u0430.";
+  } catch (error) {
+    if (handleExpiredBuilderSession(error)) {
+      return;
+    }
+    ui.submitStatus.textContent = `\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u043e\u0431\u043d\u043e\u0432\u0438\u0442\u044c \u0443\u0432\u0435\u0434\u043e\u043c\u043b\u0435\u043d\u0438\u044f: ${cleanString(error?.message || "\u043e\u0448\u0438\u0431\u043a\u0430")}`;
   }
 }
 
@@ -4876,13 +4901,16 @@ function renderPermissionsPanel() {
   section.appendChild(note);
 
   const inviteRow = document.createElement("div");
-  inviteRow.className = "builder-row builder-row-3";
+  inviteRow.className = "builder-row builder-row-4";
   inviteRow.append(
     createBuilderField("Email", createTextInput(state.builder.members.draftEmail || "", value => {
       state.builder.members.draftEmail = value;
     })),
     createBuilderField("\u0420\u043e\u043b\u044c", createSelectInput(state.builder.members.draftRole || "editor", getAssignableRoleChoices(), value => {
       state.builder.members.draftRole = value;
+    })),
+    createBuilderField("\u0423\u0432\u0435\u0434\u043e\u043c\u043b\u0435\u043d\u0438\u044f", createCheckbox("\u041f\u043e\u043b\u0443\u0447\u0430\u0442\u044c \u043f\u0438\u0441\u044c\u043c\u0430 \u043e \u043d\u043e\u0432\u044b\u0445 \u043e\u0442\u0432\u0435\u0442\u0430\u0445", state.builder.members.draftNotify, checked => {
+      state.builder.members.draftNotify = checked;
     })),
     createBuilderField("\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u0435", (() => {
       const wrap = document.createElement("div");
@@ -4951,10 +4979,14 @@ function renderPermissionsPanel() {
       const actions = document.createElement("div");
       actions.className = "builder-form-card-actions";
 
-      const roleSelect = createSelectInput(cleanString(member.role || "viewer"), getAssignableRoleChoices(), value => {
+      const roleSelect = createSelectInput(cleanString(member.role || "editor"), getAssignableRoleChoices(), value => {
         updateBuilderMemberRole(member, value);
       });
       actions.appendChild(roleSelect);
+
+      actions.appendChild(createCheckbox("\u041f\u0438\u0441\u044c\u043c\u0430 \u043e \u043d\u043e\u0432\u044b\u0445 \u043e\u0442\u0432\u0435\u0442\u0430\u0445", Boolean(member.notifyOnSubmit), checked => {
+        updateBuilderMemberNotify(member, checked);
+      }));
 
       const removeBtn = document.createElement("button");
       removeBtn.type = "button";
@@ -5985,6 +6017,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   ui.pageMode = document.body.dataset.page || "form";
   ui.dynamic = document.getElementById("dynamic");
+  ui.resultCard = document.querySelector(".result");
   ui.perPerson = document.getElementById("perPerson");
   ui.participantsCount = document.getElementById("participantsCount");
   ui.responsesCount = document.getElementById("responsesCount");
@@ -6044,6 +6077,12 @@ document.addEventListener("DOMContentLoaded", async () => {
   ui.group = document.getElementById("group");
   ui.hoursFieldWrap = document.getElementById("hoursFieldWrap");
   ui.hours = document.getElementById("hours");
+
+  document.addEventListener("focusin", updateMobileInputMode);
+  document.addEventListener("focusout", () => {
+    window.setTimeout(updateMobileInputMode, 0);
+  });
+  updateMobileInputMode();
   ui.profileError = document.getElementById("profileError");
   ui.profileCard = document.getElementById("profileCard");
   ui.scrollTopBtn = document.getElementById("scrollTopBtn");
