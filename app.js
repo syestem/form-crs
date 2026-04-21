@@ -6338,6 +6338,7 @@ async function initializeBuilderPage() {
   });
 }
 
+if (window.__FORM_APP_BOOTSTRAP_DISABLED__ !== true) {
 document.addEventListener("DOMContentLoaded", async () => {
   window.addEventListener("pointerup", () => {
     if (!state.builder.drag) {
@@ -6430,3 +6431,4 @@ document.addEventListener("DOMContentLoaded", async () => {
     document.body.classList.remove("app-booting");
   }
 });
+}
