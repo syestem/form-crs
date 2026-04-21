@@ -1899,6 +1899,8 @@ function createOptionNode(field, option, people) {
     quantityInput.step = "1";
     quantityInput.value = String(getOptionQuantity(field.id, option.value));
     quantityInput.className = "option-quantity-input";
+    quantityInput.dataset.fieldId = field.id;
+    quantityInput.dataset.optionValue = option.value;
     quantityInput.addEventListener("click", event => {
       event.stopPropagation();
     });
@@ -1919,17 +1921,21 @@ function createOptionNode(field, option, people) {
       if (!rawValue) {
         return;
       }
-      setOptionQuantity(field.id, option.value, rawValue);
-      saveDraft();
-      refreshUI(false);
+      preserveQuantityInputState(field.id, option.value, () => {
+        setOptionQuantity(field.id, option.value, rawValue);
+        saveDraft();
+        refreshUI(false);
+      });
     });
     quantityInput.addEventListener("blur", event => {
       event.stopPropagation();
       const nextValue = parsePositiveCount(event.target.value, 1);
-      setOptionQuantity(field.id, option.value, nextValue);
-      event.target.value = String(nextValue);
-      saveDraft();
-      refreshUI(false);
+      preserveScrollPosition(() => {
+        setOptionQuantity(field.id, option.value, nextValue);
+        event.target.value = String(nextValue);
+        saveDraft();
+        refreshUI(false);
+      });
     });
 
     quantityWrap.append(quantityLabel, quantityInput);
@@ -2226,6 +2232,54 @@ function renderAll() {
   });
   setupScrollDecorations();
   restoreCarouselScrollPositions();
+}
+
+function preserveQuantityInputState(fieldId, optionValue, callback) {
+  const activeElement = document.activeElement;
+  const isTargetInput = activeElement
+    && activeElement.classList?.contains("option-quantity-input")
+    && activeElement.dataset.fieldId === fieldId
+    && activeElement.dataset.optionValue === optionValue;
+
+  if (!isTargetInput) {
+    callback();
+    return;
+  }
+
+  const scrollX = window.scrollX;
+  const scrollY = window.scrollY;
+  const selectionStart = typeof activeElement.selectionStart === "number" ? activeElement.selectionStart : null;
+  const selectionEnd = typeof activeElement.selectionEnd === "number" ? activeElement.selectionEnd : null;
+
+  callback();
+
+  window.requestAnimationFrame(() => {
+    const nextInput = document.querySelector(`.option-quantity-input[data-field-id="${fieldId}"][data-option-value="${optionValue}"]`);
+    if (!(nextInput instanceof HTMLInputElement)) {
+      return;
+    }
+
+    nextInput.focus({ preventScroll: true });
+    if (selectionStart !== null && selectionEnd !== null) {
+      try {
+        nextInput.setSelectionRange(selectionStart, selectionEnd);
+      } catch {
+        // noop
+      }
+    }
+    window.scrollTo(scrollX, scrollY);
+  });
+}
+
+function preserveScrollPosition(callback) {
+  const scrollX = window.scrollX;
+  const scrollY = window.scrollY;
+
+  callback();
+
+  window.requestAnimationFrame(() => {
+    window.scrollTo(scrollX, scrollY);
+  });
 }
 
 function calculateTotal() {
